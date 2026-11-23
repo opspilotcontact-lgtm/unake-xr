@@ -555,6 +555,8 @@ function golpesAColegas() {
 const MINIJUEGOS = [
   { id: 'pipas', texto: 'Pipas con Perico' },
   { id: 'tiropato', texto: 'Tiro al pato' },
+  { id: 'cuentas', texto: 'La caja de Blancaso' },
+  { id: 'ensupunto', texto: 'La Pompa en su punto' },
 ];
 async function abrirMenu() {
   if (J.menu || J.minijuego || J.transicion || J.calada || J.enManos || J.vuela) return;
@@ -564,13 +566,16 @@ async function abrirMenu() {
   const f = xr.adelante.clone().setY(0).normalize();
   const c = xr.cabeza.clone().addScaledVector(f, 0.42); c.y = xr.cabeza.y - 0.22;
   sonido('pop', { volumen: 0.4 });
-  ui.tarjetasEn([...disponibles.map(m => m.texto), 'Recreativa (2D)', 'El barrio', 'Seguir'], c, f.clone().negate(), (texto) => {
-    J.menu = false;
+  // dos filas: los minijuegos arriba; la recreativa, el barrio y «Seguir» abajo
+  const alElegir = (texto) => {
+    J.menu = false; ui.quitarTarjetas();
     if (texto === 'El barrio') { abrirBarrio(); return; }
     if (texto === 'Recreativa (2D)') { recreativa.elegir(clave => { if (clave) jugarRecreativa(clave); }); return; }
     const m = disponibles.find(x => x.texto === texto);
     if (m) jugarMinijuego(m.id);
-  });
+  };
+  ui.tarjetasEn(disponibles.map(m => m.texto), c.clone().add(new THREE.Vector3(0, 0.05, 0)), f.clone().negate(), alElegir);
+  ui.tarjetasEn(['Recreativa (2D)', 'El barrio', 'Seguir'], c.clone().add(new THREE.Vector3(0, -0.06, 0)), f.clone().negate(), alElegir, { anadir: true });
   setTimeout(() => { if (J.menu && ui.tarjetas.length) { ui.quitarTarjetas(); J.menu = false; } }, 12000);
 }
 async function jugarMinijuego(id) {
@@ -587,6 +592,7 @@ async function jugarMinijuego(id) {
     [lasslow, blancaso].forEach((p, i) => p.grupo.position.copy(xr.cabeza).setY(0).addScaledVector(f, 0.5).addScaledVector(lat, (i ? 1 : -1) * 1.15)); }
   const ctx = {
     THREE, escena, xr, humo, ui, fisica, agarre, sonido, musica, textura, img, Recortable, nivel: 1,
+    hucha: n => { J.hucha = (J.hucha || 0) + n; }, // hasta que el motor de historia lleve la hucha del 2D
     get modo() { return J.modo; },
     delante: (d = 1, alto = null) => { const f = xr.adelante.clone().setY(0).normalize(); const q = xr.cabeza.clone().addScaledVector(f, d); q.y = alto ?? 0; return q; },
     mesa: () => xr.mesaCerca(),

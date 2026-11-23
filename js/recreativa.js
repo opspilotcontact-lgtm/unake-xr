@@ -62,14 +62,9 @@ export class Recreativa {
     const trozo = JUEGOS_2D.slice(pagina * 5, pagina * 5 + 5);
     const hay = (pagina + 1) * 5 < JUEGOS_2D.length;
     const ops = [...trozo.map(j => j[1]), hay ? 'Más…' : 'Volver'];
-    this.ui.tarjetasEn(ops.slice(0, 3), c.clone().add(new THREE.Vector3(0, 0.05, 0)), f.clone().negate(), t => this._elegido(t, alElegir, pagina));
-    // segunda fila (las tarjetas se ponen en fila; dos llamadas = dos filas)
-    const fila2 = ops.slice(3);
-    const tarj1 = [...this.ui.tarjetas], cb1 = this.ui.alElegir;
-    this.ui.tarjetasEn(fila2, c.clone().add(new THREE.Vector3(0, -0.07, 0)), f.clone().negate(), t => this._elegido(t, alElegir, pagina));
-    this.ui.tarjetas.push(...tarj1);
-    const cb2 = this.ui.alElegir;
-    this.ui.alElegir = (t, i) => (fila2.includes(t) ? cb2 : cb1)(t, i);
+    const cb = t => this._elegido(t, alElegir, pagina);
+    this.ui.tarjetasEn(ops.slice(0, 3), c.clone().add(new THREE.Vector3(0, 0.05, 0)), f.clone().negate(), cb);
+    this.ui.tarjetasEn(ops.slice(3), c.clone().add(new THREE.Vector3(0, -0.07, 0)), f.clone().negate(), cb, { anadir: true });
   }
   _elegido(t, alElegir, pagina) {
     if (t === 'Más…') return this.elegir(alElegir, pagina + 1);

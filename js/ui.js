@@ -85,8 +85,8 @@ export class UI {
 
   // ---------- tarjetas para elegir tocando ----------
   // opciones: textos; centro y normal: dónde se ponen (en fila, de cara a ti)
-  tarjetasEn(opciones, centro, haciaMi, alElegir) {
-    this.quitarTarjetas();
+  tarjetasEn(opciones, centro, haciaMi, alElegir, { anadir = false } = {}) {
+    if (!anadir) this.quitarTarjetas();
     const lateral = new THREE.Vector3(-haciaMi.z, 0, haciaMi.x).normalize();
     opciones.forEach((texto, i) => {
       const { c, ctx, t } = lienzo(512, 200);
