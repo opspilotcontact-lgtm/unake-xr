@@ -15,6 +15,7 @@ import { prepararAudio, sonido, musica, letraLista, fijarAnisotropia, precargarS
 import { activarMicro, leerMicro, hayMicro } from './microfono.js';
 import { Fisica, Agarre } from './fisica.js';
 import { Viaje } from './viaje.js';
+import { Recreativa } from './recreativa.js';
 
 const $ = id => document.getElementById(id);
 const avisoEl = $('aviso');
@@ -59,7 +60,7 @@ const vineta = (() => {
 const ui = new UI(escena);
 const xr = montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso });
 const manos = () => [xr.manos.derecha, xr.manos.izquierda];
-let humo, puerta, unake, lasslow, blancaso, viaje;
+let humo, puerta, unake, lasslow, blancaso, viaje, recreativa;
 const fisica = new Fisica(), agarre = new Agarre(fisica);
 
 // ---------- estado del director ----------
@@ -75,6 +76,8 @@ window.__unake = J; // para pruebas
 J.THREE = THREE;
 J.obj = () => ({ puerta, lasslow, blancaso, ui, humo, xr, unake, renderer, fisica, agarre, viaje });
 J.jugarMinijuego = id => jugarMinijuego(id);
+J.jugarRecreativa = c => jugarRecreativa(c);
+J.recreativa = () => recreativa;
 J.abrirMenu = () => abrirMenu();
 
 // líneas con baraja sin repetir (criterio §4)
@@ -110,6 +113,7 @@ async function cargar() {
   escena.add(puerta.grupo, unake.grupo, lasslow.grupo, blancaso.grupo);
   viaje = new Viaje({ escena, humo, sala: unake, personajes: [lasslow, blancaso], fisica, sonido, xr, img });
   await crearCosas();
+  recreativa = new Recreativa({ escena, xr, ui, sonido, musica }); recreativa.maquina.visible = false;
   puerta.grupo.visible = false; unake.grupo.visible = false; lasslow.grupo.visible = false; blancaso.grupo.visible = false;
   precargarSonidos(['lata', 'bonk', 'nam', 'fiu', 'tiroriro', 'zumbido-m', 'toc-toc', 'pin-pin', 'puerta', 'chof', 'papel', 'sorbo', 'mechero', 'mechero-falla', 'fup', 'calada', 'tos', 'tos-grande', 'risa-lasslow', 'fiuuu', 'whoosh', 'campanita', 'pop']);
 }
@@ -556,8 +560,9 @@ async function abrirMenu() {
   const f = xr.adelante.clone().setY(0).normalize();
   const c = xr.cabeza.clone().addScaledVector(f, 0.42); c.y = xr.cabeza.y - 0.22;
   sonido('pop', { volumen: 0.4 });
-  ui.tarjetasEn([...disponibles.map(m => m.texto), 'Seguir'], c, f.clone().negate(), (texto) => {
+  ui.tarjetasEn([...disponibles.map(m => m.texto), 'Recreativa (2D)', 'Seguir'], c, f.clone().negate(), (texto) => {
     J.menu = false;
+    if (texto === 'Recreativa (2D)') { recreativa.elegir(clave => { if (clave) jugarRecreativa(clave); }); return; }
     const m = disponibles.find(x => x.texto === texto);
     if (m) jugarMinijuego(m.id);
   });
@@ -600,6 +605,19 @@ async function jugarMinijuego(id) {
   };
   J.minijuego = { id, mod, inst: await mod.crear(ctx) };
   escena.add(J.minijuego.inst.grupo);
+}
+async function jugarRecreativa(clave) {
+  if (J.porro) { J.porroGuardado = J.porro; J.porro.grupo.visible = false; J.porro.mano = null; J.porro = null; }
+  if (J.liar) J.liar.grupo.visible = false;
+  if (J.mechero) J.mechero.grupo.visible = false;
+  const faseAntes = J.fase; fase('recreativa'); J.minijuego = { id: 'recreativa:' + clave, inst: { actualizar() { } } };
+  const r = await recreativa.jugar(clave, { mundo: J.mundo });
+  if (r && !r.abandonado) {
+    const n = r.estrellas ?? 0; J.resultados.push({ clave, puntos: r.puntos, gana: r.gana, estrellas: n });
+    ui.cartela(`${r.titulo || clave}: ${r.puntos} puntos · ${'★'.repeat(n)}${'☆'.repeat(3 - n)}`, 5);
+    sonido(n >= 2 ? 'oooh' : 'campanita', { volumen: 0.6 });
+  }
+  cerrarMinijuego(faseAntes);
 }
 function cerrarMinijuego(faseAntes) {
   J.minijuego = null; fase(faseAntes);
@@ -645,6 +663,7 @@ function cambiarMundo(aHumo) {
       const asientos = unake.asientos.map(a => unake.grupo.localToWorld(a.clone()));
       for (const [p, a] of [[lasslow, asientos[0]], [blancaso, asientos[1]]]) { p.grupo.position.copy(a); await p.ponerMundo('humo'); }
       repartirCosas('humo');
+      recreativa.colocar(unake.grupo.localToWorld(new THREE.Vector3(-1.9, 0, -0.9)), unake.grupo.localToWorld(new THREE.Vector3(0, 0, -0.6))); recreativa.maquina.visible = true;
       J.mundo = 'humo'; musica('sofa', 0.32);
       xr.permitirMovimiento(true);
       setTimeout(() => frase('humo'), 1600);
@@ -656,7 +675,7 @@ function cambiarMundo(aHumo) {
       escena.background = J.modo === 'ar' ? null : new THREE.Color('#e6dfd2');
       fisica.planos = []; J.planosEn = 0;
       for (const [p, s] of [[lasslow, J.sitios[0]], [blancaso, J.sitios[1]]]) { p.grupo.position.copy(s); await p.ponerMundo('normal'); }
-      repartirCosas('normal');
+      repartirCosas('normal'); recreativa.maquina.visible = false;
       J.mundo = 'normal'; musica('dia', 0.25);
       setTimeout(() => frase('dia'), 1400);
     }
@@ -687,6 +706,7 @@ function director(dt) {
   // física: de día, contra tus mesas y paredes reales (se refrescan cada segundo)
   if (J.mundo === 'normal' && xr.sesion) { J.planosEn = (J.planosEn ?? 0) - dt; if (J.planosEn <= 0) { J.planosEn = 1; fisica.planosDesdeXR(xr.planos); } }
   agarre.actualizar(dt, ms); fisica.actualizar(dt); golpesAColegas(); pasoBolas(dt);
+  recreativa?.actualizar(dt, ms);
   if (J.minijuego) { try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
   else if (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender') mirarMenu();
   viaje?.actualizar(dt, { puede: J.mundo === 'humo' && !J.transicion && !J.calada && !J.enManos && !J.vuela, colocon: J.colocon });

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>UNAKÉ XR · el barrio</title>
+<link rel="icon" href="data:,">
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff3e6; font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  [hidden] { display: none !important; }
+  #portada { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(18,12,31,.86); z-index: 5; }
+  #portada h1 { font-family: 'Caprasimo', serif; font-weight: 400; font-size: 52px; margin: 0; color: #ffd6ea; }
+  #portada p { margin: 0; max-width: 32em; text-align: center; opacity: .8; }
+  #portada button { font-family: 'Caprasimo', serif; font-size: 22px; padding: 12px 22px; border: 3px solid #1a0f24; background: #ffe066; color: #1a0f24; box-shadow: 0 5px 0 #1a0f24; cursor: pointer; }
+  #portada button:disabled { opacity: .4; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","iwer":"https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.module.min.js","@iwer/devui":"https://cdn.jsdelivr.net/npm/@iwer/devui@2.8.0/build/iwer-devui.module.min.js","@iwer/sem":"https://cdn.jsdelivr.net/npm/@iwer/sem@2.8.0/build/es-min/index.min.js"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<section id="portada"><h1>El barrio</h1>
+  <p>La maqueta del barrio en tu mesa. Toca una sala con el dedo para entrar; agárrala con las dos manos para moverla, girarla o escalarla.</p>
+  <div><button id="btnAR" disabled>Entrar</button> <button id="btnVR" disabled>Solo VR</button> <button id="btnPC">En el PC</button></div>
+</section>
+<script type="module">
+  if (new URLSearchParams(location.search).has('emular')) await import('./js/emulador.js');
+  const { arrancarPagina } = await import('./js/barrio/pagina.js');
+  await arrancarPagina();
+</script>
+</body>
+</html>
