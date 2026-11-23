@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:,">
+  <title>UNAKÉ XR · prueba del puente</title>
+  <style>
+    :root { --tinta: #1b1028; --crema: #fff6e8; --amarillo: #ffd23f; --azul: #5ad1ff; --rosa: #ff5fa2; }
+    html, body { margin: 0; height: 100%; background: var(--tinta); color: var(--crema); font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
+    #lienzo { position: fixed; inset: 0; }
+    #barra { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; background: rgba(27,16,40,.85); z-index: 2; }
+    #barra button { font: inherit; font-weight: 700; padding: 7px 14px; border: 3px solid var(--tinta); border-radius: 10px; background: var(--amarillo); color: var(--tinta); cursor: pointer; }
+    #barra button.sec { background: var(--azul); }
+    #barra button:disabled { opacity: .45; cursor: default; }
+    #estado { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--azul); }
+    #resultado { position: fixed; left: 16px; bottom: 16px; max-width: min(560px, calc(100% - 32px)); padding: 10px 14px; border-radius: 10px; background: rgba(27,16,40,.85); border: 2px solid var(--amarillo); z-index: 2; white-space: pre-wrap; }
+    #resultado:empty { display: none; }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="lienzo"></canvas>
+  <div id="barra">
+    <button data-juego="Pipas" disabled>Pipas</button>
+    <button data-juego="Cuentas" disabled>Cuentas</button>
+    <button data-juego="TiroPato" disabled>TiroPato</button>
+    <button id="cerrar" class="sec" disabled>Cerrar</button>
+    <span id="estado">cargando…</span>
+  </div>
+  <div id="resultado"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { crearPuente } from './js/puente/puente.js';
+
+    // ?sin → sin puente (para medir el coste), ?r=canvas → Phaser en canvas 2D.
+    const q = new URLSearchParams(location.search);
+    const estado = document.getElementById('estado');
+    const salida = document.getElementById('resultado');
+
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('lienzo'), antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight, false);
+    const escena = new THREE.Scene();
+    escena.background = new THREE.Color(0x120a1c);
+    const camara = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.05, 50);
+    camara.position.set(0, 1.45, 1.9);
+    camara.lookAt(0, 1.3, 0);
+    escena.add(new THREE.HemisphereLight(0xfff6e8, 0x2a1840, 1.2));
+
+    // La «máquina recreativa»: mueble y pantalla 16:9 con la textura del puente.
+    const mueble = new THREE.Mesh(new THREE.BoxGeometry(1.84, 1.2, 0.3), new THREE.MeshStandardMaterial({ color: 0x5b2a86, roughness: 0.6 }));
+    mueble.position.set(0, 1.3, -0.17);
+    escena.add(mueble);
+    const pantalla = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.9), new THREE.MeshBasicMaterial({ color: 0x1b1028 }));
+    pantalla.position.set(0, 1.3, 0.001);
+    escena.add(pantalla);
+    const suelo = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshStandardMaterial({ color: 0x241634 }));
+    suelo.rotation.x = -Math.PI / 2;
+    escena.add(suelo);
+
+    addEventListener('resize', () => {
+      renderer.setSize(innerWidth, innerHeight, false);
+      camara.aspect = innerWidth / innerHeight;
+      camara.updateProjectionMatrix();
+    });
+
+    // Medidas: fps del bucle three y ms de CPU por fotograma (actualizar + render).
+    const prueba = window.__prueba = { listo: false, resultados: [], salidas: [], cuadros: [], puente: null };
+    let previo = performance.now();
+    renderer.setAnimationLoop(t => {
+      const ahora = performance.now();
+      prueba.cuadros.push(ahora - previo);
+      if (prueba.cuadros.length > 600) prueba.cuadros.shift();
+      previo = ahora;
+      const c0 = performance.now();
+      if (prueba.puente) prueba.puente.actualizar(ahora);
+      renderer.render(escena, camara);
+      prueba.cpu = (prueba.cpu || 0) * 0.95 + (performance.now() - c0) * 0.05;
+    });
+    // Para las pruebas: UV de la pantalla → píxel de la ventana.
+    prueba.proyectar = (u, v) => {
+      const w = pantalla.localToWorld(new THREE.Vector3((u - 0.5) * 1.6, (v - 0.5) * 0.9, 0)).project(camara);
+      return { x: (w.x + 1) / 2 * innerWidth, y: (1 - w.y) / 2 * innerHeight };
+    };
+    prueba.fps = () => { const c = prueba.cuadros.slice(-120); return +(1000 / (c.reduce((a, b) => a + b, 0) / c.length)).toFixed(1); };
+    setInterval(() => {
+      const p = prueba.puente;
+      const m = p ? p.memoria() : null;
+      estado.textContent = `${prueba.fps()} fps · CPU ${(prueba.cpu || 0).toFixed(1)} ms` + (m ? ` · texturas ${m.texturasMB} MB` : '');
+    }, 500);
+
+    if (!q.has('sin')) {
+      const p = await crearPuente({ ancho: 1280, alto: 720, renderizador: q.get('r') || 'webgl' });
+      prueba.puente = p;
+      pantalla.material.dispose();
+      pantalla.material = new THREE.MeshBasicMaterial({ map: p.textura, toneMapped: false });
+      p.on('salir', s => prueba.salidas.push(s));
+      document.querySelectorAll('[data-juego]').forEach(b => {
+        b.disabled = false;
+        b.addEventListener('click', () => { b.blur(); prueba.lanzar(b.dataset.juego); });
+      });
+      const cerrar = document.getElementById('cerrar');
+      cerrar.disabled = false;
+      cerrar.addEventListener('click', () => { cerrar.blur(); p.cerrar(); });
+
+      prueba.lanzar = async (clave, op) => {
+        p.desbloquearAudio();
+        salida.textContent = `Jugando a ${clave}…`;
+        const r = await p.jugar(clave, op);
+        prueba.resultados.push(r);
+        salida.textContent = r.abandonado
+          ? `${clave}: abandonado (${r.motivo})`
+          : `${r.clave}: ${r.puntos} puntos · ${r.gana ? 'GANA' : 'pierde'} · ${'★'.repeat(r.estrellas)}${'☆'.repeat(3 - r.estrellas)}\n${r.titulo}`;
+        return r;
+      };
+
+      // Teclado del PC → p.tecla (el iframe no recibe teclas reales).
+      const TECLAS_JUEGO = /^(Space|Enter|Escape|Arrow\w+|Shift\w+|Key[A-Z]|Digit\d)$/;
+      const tecla = abajo => e => {
+        if (!TECLAS_JUEGO.test(e.code)) return;
+        e.preventDefault();
+        p.tecla(e.code, abajo);
+      };
+      addEventListener('keydown', tecla(true));
+      addEventListener('keyup', tecla(false));
+
+      // Ratón sobre la pantalla → raycast → UV → p.puntero.
+      const rayo = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      const lienzo = renderer.domElement;
+      const apuntar = tipo => e => {
+        ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+        rayo.setFromCamera(ndc, camara);
+        const hit = rayo.intersectObject(pantalla)[0];
+        if (!hit) return;
+        if (tipo === 'down') p.desbloquearAudio();
+        prueba.ultimoUV = { u: hit.uv.x, v: hit.uv.y };
+        p.puntero(hit.uv.x, hit.uv.y, tipo);
+      };
+      lienzo.addEventListener('pointerdown', apuntar('down'));
+      lienzo.addEventListener('pointermove', apuntar('move'));
+      lienzo.addEventListener('pointerup', apuntar('up'));
+      salida.textContent = `Puente listo en ${p.metricas.arranqueMs} ms. Elige un minijuego.`;
+    }
+    prueba.listo = true;
+  </script>
+</body>
+</html>
