@@ -11,7 +11,7 @@ import { UI } from './ui.js';
 import { Puerta } from './puerta.js';
 import { Liar, Mechero, NIVELES_CALADA, CENTRO_CALADA, nivelDe } from './porro.js';
 import { montarUnake } from './decorado.js';
-import { prepararAudio, sonido, musica, letraLista, fijarAnisotropia, precargarSonidos, audio, img } from './recursos.js';
+import { prepararAudio, sonido, musica, letraLista, fijarAnisotropia, precargarSonidos, audio, img, textura } from './recursos.js';
 import { activarMicro, leerMicro, hayMicro } from './microfono.js';
 import { Fisica, Agarre } from './fisica.js';
 import { Viaje } from './viaje.js';
@@ -69,11 +69,13 @@ const J = {
   dirPuerta: new THREE.Vector3(0, 0, -1), origen: new THREE.Vector3(),
   sitios: [], liar: null, porro: null, mechero: null, manoMechero: null,
   calada: null, encendiendo: 0, cola: [], tareas: [],
-  pasesSinPasar: 0, vueltas: 0, transicion: false, bolas: [], vuela: null, ofrecido: null, enManos: null,
+  pasesSinPasar: 0, vueltas: 0, transicion: false, bolas: [], vuela: null, ofrecido: null, enManos: null, resultados: [], minijuego: null, menu: false,
 };
 window.__unake = J; // para pruebas
 J.THREE = THREE;
 J.obj = () => ({ puerta, lasslow, blancaso, ui, humo, xr, unake, renderer, fisica, agarre, viaje });
+J.jugarMinijuego = id => jugarMinijuego(id);
+J.abrirMenu = () => abrirMenu();
 
 // líneas con baraja sin repetir (criterio §4)
 const barajas = new Map();
@@ -539,6 +541,92 @@ function golpesAColegas() {
   }
 }
 
+// ---------- minijuegos nativos (js/minijuegos/*) desde el menú de la muñeca ----------
+// El menú se abre tocando el panel del colocón de tu muñeca izquierda con el índice derecho (o con B/Y).
+// Mientras juegas, el porro se queda en el cenicero (se guarda) y la bandeja se aparta.
+const MINIJUEGOS = [
+  { id: 'pipas', texto: 'Pipas con Perico' },
+  { id: 'tiropato', texto: 'Tiro al pato' },
+];
+async function abrirMenu() {
+  if (J.menu || J.minijuego || J.transicion || J.calada || J.enManos || J.vuela) return;
+  J.menu = true;
+  const disponibles = [];
+  for (const m of MINIJUEGOS) { try { await import(`./minijuegos/${m.id}.js`); disponibles.push(m); } catch { /* aún no existe */ } }
+  const f = xr.adelante.clone().setY(0).normalize();
+  const c = xr.cabeza.clone().addScaledVector(f, 0.42); c.y = xr.cabeza.y - 0.22;
+  sonido('pop', { volumen: 0.4 });
+  ui.tarjetasEn([...disponibles.map(m => m.texto), 'Seguir'], c, f.clone().negate(), (texto) => {
+    J.menu = false;
+    const m = disponibles.find(x => x.texto === texto);
+    if (m) jugarMinijuego(m.id);
+  });
+  setTimeout(() => { if (J.menu && ui.tarjetas.length) { ui.quitarTarjetas(); J.menu = false; } }, 12000);
+}
+async function jugarMinijuego(id) {
+  const mod = (await import(`./minijuegos/${id}.js`)).default;
+  // guardar lo que tienes entre manos
+  if (J.porro) { J.porroGuardado = J.porro; J.porro.grupo.visible = false; J.porro.mano = null; J.porro = null; }
+  if (J.liar) J.liar.grupo.visible = false;
+  if (J.mechero) J.mechero.grupo.visible = false;
+  const faseAntes = J.fase; fase('minijuego');
+  // sitio libre delante: el sofá se aparta y los colegas miran desde los lados, de pie
+  J.antesMj = [lasslow, blancaso].map(p => p.grupo.position.clone());
+  if (J.mundo === 'humo') unake.sofa.visible = false;
+  { const f = xr.adelante.clone().setY(0).normalize(), lat = new THREE.Vector3(-f.z, 0, f.x);
+    [lasslow, blancaso].forEach((p, i) => p.grupo.position.copy(xr.cabeza).setY(0).addScaledVector(f, 0.5).addScaledVector(lat, (i ? 1 : -1) * 1.15)); }
+  const ctx = {
+    THREE, escena, xr, humo, ui, fisica, agarre, sonido, musica, textura, img, Recortable, nivel: 1,
+    get modo() { return J.modo; },
+    delante: (d = 1, alto = null) => { const f = xr.adelante.clone().setY(0).normalize(); const q = xr.cabeza.clone().addScaledVector(f, d); q.y = alto ?? 0; return q; },
+    mesa: () => xr.mesaCerca(),
+    terminar: ({ puntos, gana = true, linea = '' }) => {
+      const n = mod.umbrales.filter(u => puntos >= u).length;
+      J.resultados.push({ clave: mod.clave, puntos, gana, estrellas: n });
+      ui.cartela(`${mod.titulo}: ${puntos} puntos · ${'★'.repeat(n)}${'☆'.repeat(3 - n)}${linea ? ' · ' + linea : ''}`, 6);
+      sonido(n >= 2 ? 'oooh' : 'campanita', { volumen: 0.6 });
+      if (n === 3) setTimeout(() => di('blancaso', 'Tres estrellas. Eso va a la agenda.'), 1500);
+      else if (!gana) setTimeout(() => di('lasslow', 'Perdón… es que me da la risa.'), 1500);
+      setTimeout(() => {
+        const f = xr.adelante.clone().setY(0).normalize();
+        const c = xr.cabeza.clone().addScaledVector(f, 0.45); c.y = xr.cabeza.y - 0.25;
+        ui.tarjetasEn(['Otra vez', 'Volver'], c, f.clone().negate(), async t => {
+          J.minijuego.inst.destruir?.(); escena.remove(J.minijuego.inst.grupo);
+          if (t === 'Otra vez') { J.minijuego.inst = await mod.crear(ctx); escena.add(J.minijuego.inst.grupo); }
+          else cerrarMinijuego(faseAntes);
+        });
+      }, 1800);
+    },
+  };
+  J.minijuego = { id, mod, inst: await mod.crear(ctx) };
+  escena.add(J.minijuego.inst.grupo);
+}
+function cerrarMinijuego(faseAntes) {
+  J.minijuego = null; fase(faseAntes);
+  unake.sofa.visible = true;
+  if (J.antesMj) [lasslow, blancaso].forEach((p, i) => p.grupo.position.copy(J.antesMj[i]));
+  musica(J.mundo === 'humo' ? 'sofa' : 'dia', J.mundo === 'humo' ? 0.32 : 0.25);
+  if (J.porroGuardado) { J.porro = J.porroGuardado; J.porroGuardado = null; J.porro.grupo.visible = true; J.ofrecido = { quien: lasslow, t: 0 }; di('lasslow', 'Te lo he guardado. Casi entero.'); }
+  if (J.liar) J.liar.grupo.visible = true;
+  if (J.mechero) J.mechero.grupo.visible = true;
+}
+function mirarMenu() {
+  const izq = xr.manos.izquierda, der = xr.manos.derecha;
+  // botón B/Y de cualquier mando
+  for (const m of [izq, der]) {
+    const b = m.fuente?.gamepad?.buttons?.[5]?.pressed;
+    if (b && !m._menuAntes) abrirMenu();
+    m._menuAntes = b;
+  }
+  // tocar la muñeca
+  if (izq.activa && der.activa && ui.munecaM.parent) {
+    const p = ui.munecaM.getWorldPosition(_a);
+    const cerca = der.punta.distanceTo(p) < 0.045;
+    if (cerca && !J._tocaMuneca) { der.vibrar(0.4, 30); abrirMenu(); }
+    J._tocaMuneca = cerca;
+  }
+}
+
 // ---------- los dos mundos ----------
 function cambiarMundo(aHumo) {
   if (J.transicion) return;
@@ -599,6 +687,8 @@ function director(dt) {
   // física: de día, contra tus mesas y paredes reales (se refrescan cada segundo)
   if (J.mundo === 'normal' && xr.sesion) { J.planosEn = (J.planosEn ?? 0) - dt; if (J.planosEn <= 0) { J.planosEn = 1; fisica.planosDesdeXR(xr.planos); } }
   agarre.actualizar(dt, ms); fisica.actualizar(dt); golpesAColegas(); pasoBolas(dt);
+  if (J.minijuego) { try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
+  else if (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender') mirarMenu();
   viaje?.actualizar(dt, { puede: J.mundo === 'humo' && !J.transicion && !J.calada && !J.enManos && !J.vuela, colocon: J.colocon });
   vineta.material.opacity = Math.min(0.85, (xr.movimiento?.velocidad ?? 0) / 1.5 * 0.85);
   vineta.visible = vineta.material.opacity > 0.01;
@@ -692,7 +782,7 @@ function director(dt) {
   // el colocón baja solo; los mundos cambian con histéresis
   J.colocon = Math.max(0, Math.min(100, J.colocon - dt * (J.mundo === 'humo' ? 0.16 : 0.05)));
   if (xr.manos.izquierda.activa) ui.colocon(J.colocon, xr.manos.izquierda);
-  if (!J.transicion && !J.calada && J.fase !== 'portada') {
+  if (!J.transicion && !J.calada && J.fase !== 'portada' && !J.minijuego) {
     if (J.mundo === 'normal' && J.colocon >= 30) cambiarMundo(true);
     else if (J.mundo === 'humo' && J.colocon < 12) cambiarMundo(false);
   }

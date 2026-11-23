@@ -105,7 +105,7 @@ await pag.evaluate(() => {
       if (i === 1) {
         log('pasar a Lasslow');
         yield* mover(der(), () => o.lasslow.bocaMundo(new T.Vector3()).add(new T.Vector3(0.05, 0, 0.12)), 0.5, true);
-        yield* hasta(() => J.ofrecido, 10);
+        yield* hasta(() => J.ofrecido, 30);
         yield* quieto(der(), 1.0, false);
         yield* mover(der(), () => J.porro.grupo.position.clone(), 0.4, false);
         yield* quieto(der(), 0.1, true);
@@ -127,7 +127,7 @@ await pag.evaluate(() => {
     yield* mover(der(), () => o.blancaso.bocaMundo(new T.Vector3()).add(new T.Vector3(-0.05, 0, 0.12)), 0.6, true);
     yield* hasta(() => J.enManos, 3);
     J.botFoto = 'pasado';
-    yield* hasta(() => J.ofrecido, 10);
+    yield* hasta(() => J.ofrecido, 30);
     log('vuelta al día');
     J.colocon = 11;
     yield* hasta(() => J.mundo === 'normal' && !J.transicion, 10);

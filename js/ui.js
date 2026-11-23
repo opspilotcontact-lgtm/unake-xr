@@ -143,6 +143,7 @@ export class UI {
     ctx.fillStyle = '#fff'; ctx.fillRect(16 + 224 * 0.3 - 2, 52, 4, 34);
     ctx.font = '34px Caprasimo, serif'; ctx.fillStyle = '#fff3e6'; ctx.textBaseline = 'top';
     ctx.fillText('colocón ' + v, 18, 10);
+    ctx.font = '20px Caprasimo, serif'; ctx.fillStyle = '#ffe066'; ctx.textAlign = 'right'; ctx.fillText('toca: jugar', 240, 16); ctx.textAlign = 'left';
     t.needsUpdate = true;
   }
 
