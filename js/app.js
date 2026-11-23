@@ -121,7 +121,7 @@ const listo = cargar().catch(e => { console.error(e); aviso('Error cargando: ' +
 
 // ---------- portada ----------
 function comprobarSoporte() {
-  if (!navigator.xr) { $('estadoXR').textContent = 'Este navegador no tiene WebXR: abrilo en el navegador de las Quest.'; return; }
+  if (!navigator.xr) { $('estadoXR').textContent = 'Este navegador no tiene WebXR: ábrelo en el navegador de las Quest.'; return; }
   navigator.xr.isSessionSupported('immersive-ar').then(v => { $('btnAR').disabled = !v; if (v) $('estadoXR').textContent = 'Gafas listas.'; }).catch(() => { });
   navigator.xr.isSessionSupported('immersive-vr').then(v => { $('btnVR').disabled = !v; }).catch(() => { });
 }
