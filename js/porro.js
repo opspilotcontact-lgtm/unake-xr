@@ -48,7 +48,7 @@ export class Porro {
     this.brasa.position.z = this.largo; this.brasa.scale.z = 0.5;
     this.papel = papel;
     this.grupo.add(papel, boquilla, this.brasa);
-    this.encendido = false; this.caladas = 0; this.caladasMax = 8; this.calidad = 1;
+    this.encendido = false; this.caladas = 0; this.caladasMax = 14; this.calidad = 1;
     this.t = 0; this.cadaHilo = 0;
     this.mano = null; // la Mano que lo lleva (o null si lo lleva un personaje / está suelto)
   }

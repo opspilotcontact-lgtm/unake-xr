@@ -154,6 +154,7 @@ export class Recortable {
     const respira = Math.sin(this.t * Math.PI * 2 * this.ritmo) * 0.012;
     const sy = 1 + this.rebote + respira, sx = 1 / Math.sqrt(Math.max(0.3, sy));
     this.cuerpo.scale.set(sx, sy, 1);
+    this.cuerpo.rotation.x += ((this.inclina || 0) * 0.2 - this.cuerpo.rotation.x) * Math.min(1, dt * 6);
 
     // se ladea hacia ti, con tope para no ponerse de canto
     const objetivo = this.mirarHacia || camaraPos;

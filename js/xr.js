@@ -29,6 +29,11 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
   let sesion = null, modo = null, ref = null;
   const cabeza = new THREE.Vector3(), adelante = new THREE.Vector3(0, 0, -1), cabezaQ = new THREE.Quaternion();
   let planos = [], cadaPlanos = 0;
+  // locomoción con joystick (solo cuando se activa: en el humo). Se desplaza el ESPACIO DE REFERENCIA,
+  // nunca la cámara: stick izquierdo = andar hacia donde miras; stick derecho = giro a saltos de 30°.
+  let refBase = null, movil = false, giroEspera = 0;
+  const VEL = 1.5, GIRO = Math.PI / 6;
+  const movimiento = { velocidad: 0 };
 
   async function entrar(m, { micro = null } = {}) {
     if (sesion || !navigator.xr) return;
@@ -44,7 +49,7 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
       renderer.xr.setReferenceSpaceType('local-floor');
       renderer.xr.setFoveation(1);
       await renderer.xr.setSession(s);
-      ref = renderer.xr.getReferenceSpace();
+      ref = renderer.xr.getReferenceSpace(); refBase = ref;
     } catch (err) {
       if (s) { s.removeEventListener('end', terminar); s.end().catch(() => { }); }
       sesion = null; modo = null;
@@ -54,7 +59,7 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
     alEntrar(m, micro);
   }
   function terminar() {
-    sesion = null; modo = null; ref = null; planos = [];
+    sesion = null; modo = null; ref = null; refBase = null; movil = false; planos = [];
     for (const m of Object.values(manos)) { m.activa = false; m.fuente = null; }
     alSalir();
   }
@@ -112,8 +117,40 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
       } else m._tienePrev = false;
       m.grupo.visible = m.activa;
     }
+    if (movil) moverConMandos(dt);
     cadaPlanos -= dt;
     if (cadaPlanos <= 0 && frame.detectedPlanes) { cadaPlanos = 0.5; planos = leerPlanos(frame); }
+  }
+
+  function desplazar(dx, dz, giro) {
+    // el nuevo origen, expresado en el espacio actual (medido en el emulador: origen en -v = tú te mueves +v)
+    let t;
+    if (giro) {
+      // girar alrededor de tu cabeza: T(h)·R(giro)·T(-h)
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), giro);
+      const h = cabeza.clone().setY(0);
+      const pos = h.clone().sub(h.clone().applyQuaternion(q));
+      t = new XRRigidTransform({ x: pos.x, y: 0, z: pos.z }, { x: q.x, y: q.y, z: q.z, w: q.w });
+    } else t = new XRRigidTransform({ x: dx, y: 0, z: dz });
+    ref = ref.getOffsetReferenceSpace(t);
+    renderer.xr.setReferenceSpace(ref);
+  }
+  function moverConMandos(dt) {
+    let ax = 0, ay = 0, gx = 0;
+    for (const f of sesion.inputSources) {
+      const a = f.gamepad?.axes; if (!a || a.length < 4 || f.hand) continue;
+      if (f.handedness === 'left') { ax = a[2]; ay = a[3]; } else if (f.handedness === 'right') gx = a[2];
+    }
+    const zona = v => Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82;
+    ax = zona(ax); ay = zona(ay);
+    const f = adelante.clone().setY(0); if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
+    const der = new THREE.Vector3(-f.z, 0, f.x);
+    const v = f.multiplyScalar(-ay).add(der.multiplyScalar(ax)).multiplyScalar(VEL * dt);
+    movimiento.velocidad = v.length() / Math.max(dt, 1e-3);
+    if (v.lengthSq() > 1e-8) desplazar(-v.x, -v.z, 0); // el origen se mueve al revés que tú
+    giroEspera -= dt;
+    if (Math.abs(gx) > 0.7 && giroEspera <= 0) { giroEspera = 0.35; desplazar(0, 0, Math.sign(gx) * GIRO); }
+    if (Math.abs(gx) < 0.3) giroEspera = 0;
   }
 
   function leerPlanos(frame) {
@@ -177,7 +214,13 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
     manos, cabeza, adelante, cabezaQ, entrar, paso,
     get sesion() { return sesion; }, get modo() { return modo; },
     get planos() { return planos; },
-    paredDelante, mesaCerca,
+    paredDelante, mesaCerca, movimiento,
+    // activar el joystick (en el humo) o volver a tu sitio real (de día: la casa tiene que cuadrar con la realidad)
+    permitirMovimiento(si) {
+      movil = !!si;
+      if (!si && refBase && ref !== refBase) { ref = refBase; renderer.xr.setReferenceSpace(refBase); }
+      movimiento.velocidad = 0;
+    },
     // dónde está tu boca: un poco por debajo y por delante de los ojos
     boca(destino = new THREE.Vector3()) {
       return destino.set(0, -0.075, -0.07).applyQuaternion(cabezaQ).add(cabeza);

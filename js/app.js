@@ -11,8 +11,10 @@ import { UI } from './ui.js';
 import { Puerta } from './puerta.js';
 import { Liar, Mechero, NIVELES_CALADA, CENTRO_CALADA, nivelDe } from './porro.js';
 import { montarUnake } from './decorado.js';
-import { prepararAudio, sonido, musica, letraLista, fijarAnisotropia, precargarSonidos, audio } from './recursos.js';
+import { prepararAudio, sonido, musica, letraLista, fijarAnisotropia, precargarSonidos, audio, img } from './recursos.js';
 import { activarMicro, leerMicro, hayMicro } from './microfono.js';
+import { Fisica, Agarre } from './fisica.js';
+import { Viaje } from './viaje.js';
 
 const $ = id => document.getElementById(id);
 const avisoEl = $('aviso');
@@ -44,11 +46,21 @@ const casaFalsa = new THREE.Group();
 }
 escena.add(casaFalsa);
 
+// viñeta de confort (solo al moverte con el joystick)
+const vineta = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const r = g.createRadialGradient(128, 128, 60, 128, 128, 128); r.addColorStop(0, 'rgba(10,6,16,0)'); r.addColorStop(1, 'rgba(10,6,16,1)');
+  g.fillStyle = r; g.fillRect(0, 0, 256, 256);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
+  m.position.z = -0.15; m.renderOrder = 99; m.visible = false; camara.add(m); return m;
+})();
+
 // ---------- piezas ----------
 const ui = new UI(escena);
 const xr = montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso });
 const manos = () => [xr.manos.derecha, xr.manos.izquierda];
-let humo, puerta, unake, lasslow, blancaso;
+let humo, puerta, unake, lasslow, blancaso, viaje;
+const fisica = new Fisica(), agarre = new Agarre(fisica);
 
 // ---------- estado del director ----------
 const J = {
@@ -57,11 +69,11 @@ const J = {
   dirPuerta: new THREE.Vector3(0, 0, -1), origen: new THREE.Vector3(),
   sitios: [], liar: null, porro: null, mechero: null, manoMechero: null,
   calada: null, encendiendo: 0, cola: [], tareas: [],
-  pasesSinPasar: 0, vueltas: 0, transicion: false,
+  pasesSinPasar: 0, vueltas: 0, transicion: false, bolas: [], vuela: null, ofrecido: null, enManos: null,
 };
 window.__unake = J; // para pruebas
 J.THREE = THREE;
-J.obj = () => ({ puerta, lasslow, blancaso, ui, humo, xr, unake, renderer });
+J.obj = () => ({ puerta, lasslow, blancaso, ui, humo, xr, unake, renderer, fisica, agarre, viaje });
 
 // líneas con baraja sin repetir (criterio §4)
 const barajas = new Map();
@@ -94,8 +106,10 @@ async function cargar() {
     Recortable.crear('lasslow', 'normal'), Recortable.crear('blancaso', 'normal'),
   ]);
   escena.add(puerta.grupo, unake.grupo, lasslow.grupo, blancaso.grupo);
+  viaje = new Viaje({ escena, humo, sala: unake, personajes: [lasslow, blancaso], fisica, sonido, xr, img });
+  await crearCosas();
   puerta.grupo.visible = false; unake.grupo.visible = false; lasslow.grupo.visible = false; blancaso.grupo.visible = false;
-  precargarSonidos(['toc-toc', 'pin-pin', 'puerta', 'chof', 'papel', 'sorbo', 'mechero', 'mechero-falla', 'fup', 'calada', 'tos', 'tos-grande', 'risa-lasslow', 'fiuuu', 'whoosh', 'campanita', 'pop']);
+  precargarSonidos(['lata', 'bonk', 'nam', 'fiu', 'tiroriro', 'zumbido-m', 'toc-toc', 'pin-pin', 'puerta', 'chof', 'papel', 'sorbo', 'mechero', 'mechero-falla', 'fup', 'calada', 'tos', 'tos-grande', 'risa-lasslow', 'fiuuu', 'whoosh', 'campanita', 'pop']);
 }
 const listo = cargar().catch(e => { console.error(e); aviso('Error cargando: ' + e.message, 20000); });
 
@@ -248,6 +262,7 @@ function sacarBandeja() {
   J.liar.colocar(punto, f.clone().negate());
   escena.add(J.liar.grupo);
   J.liar.alCambiarPaso = pasoLiar;
+  if (!J.cosasFuera && J.mundo === 'normal') { J.cosasFuera = true; repartirCosas('normal'); }
   fase('liar');
   pasoLiar('picar');
   sonido('campanita', { volumen: 0.4 });
@@ -279,6 +294,8 @@ function iniciarCalada() {
   J.calada = { valor: 0, t: 0, estado: 'dentro' };
   sonido('calada', { volumen: 0.7 });
 }
+// formas de soltar el humo sin micro (baraja sin repetir); con micro, la forma la pones tú soplando
+const FORMAS = ['chorro', 'aros', 'nariz', 'bola'];
 function acabarCalada() {
   const c = J.calada; if (!c) return;
   const nivel = nivelDe(c.valor);
@@ -293,26 +310,71 @@ function acabarCalada() {
   J.colocon += nivel.sube * (J.porro.calidad ?? 1);
   ui.cartela('¡' + nivel.nombre + '!', 1.6);
   sonido(idx >= 3 ? 'oooh' : 'campanita', { volumen: 0.5 });
-  c.estado = 'aguanta'; c.t = 0; c.nivel = nivel; c.idx = idx;
-  if (hayMicro()) ui.instruccion('Sopla para soltarlo');
+  Object.assign(c, { estado: 'aguanta', t: 0, nivel, idx, aire: 1 + idx * 0.3, aros: Math.min(5, idx + 2), callado: 0, soplo: false, antes: false });
+  dejarDeFumar();
+  if (hayMicro() && !J.yaExplicoSoplar) { J.yaExplicoSoplar = true; ui.instruccion('Sopla para soltarlo · «pff, pff» = aros'); }
 }
-function soltarHumo(fuerza) {
-  const c = J.calada; ui.instruccion(null);
-  const boca = xr.boca(), dir = xr.adelante.clone();
-  humo.exhalar(boca, dir, Math.max(0.35, fuerza));
-  sonido('fiuuu', { volumen: 0.35 });
-  const aros = Math.min(3, c.idx);
-  for (let i = 0; i < aros; i++) setTimeout(() => humo.aro(xr.boca(), xr.adelante.clone(), 0.04 + i * 0.01), 380 + i * 420);
-  if (c.idx >= 3) frase('epica'); else if (Math.random() < 0.6) frase('bien');
-  J.calada = null; dejarDeFumar();
+// con micro: el humo sale de TU boca mientras soplas, con la fuerza con la que soplas; cada soplido corto
+// suelta un aro. Se acaba cuando te quedas sin aire o dejas de soplar un rato.
+function soltarConMicro(dt, c) {
+  const mic = leerMicro(dt);
+  const boca = xr.boca(), dir = xr.adelante;
+  if (mic.sopla) {
+    if (!c.antes && c.idx >= 1 && c.aros > 0 && c.callado > 0.12) { c.aros--; humo.aro(boca, dir.clone(), 0.035 + mic.nivel * 0.02); sonido('fup', { volumen: 0.25, tono: 1.3 }); }
+    c.soplo = true; c.callado = 0;
+    c.aire -= dt * (0.55 + mic.nivel);
+    const n = Math.ceil(dt * (25 + mic.nivel * 45));
+    for (let i = 0; i < n; i++) {
+      const v = dir.clone().multiplyScalar(0.35 + mic.nivel * 1.5); v.x += (Math.random() - 0.5) * 0.12; v.y += (Math.random() - 0.4) * 0.1; v.z += (Math.random() - 0.5) * 0.12;
+      humo.soltar({ pos: boca, vel: v, tam: 0.03 + Math.random() * 0.03, vida: 2.4 + Math.random(), crece: 0.17, sube: 0.05, frena: 1.3 });
+    }
+    if (Math.random() < dt * 10) xr.manos.derecha.vibrar(0.08, 10);
+  } else c.callado += dt;
+  c.antes = mic.sopla;
+  if (c.aire <= 0 || (c.soplo && c.callado > 2.2)) acabarSoltar(c, true);
+  else if (!c.soplo && c.t > 5) soltarSolo(c); // no ha soplado: sale solo
+}
+function soltarSolo(c) {
+  const forma = sinRepetir('formas', FORMAS);
+  const boca = xr.boca(), dir = xr.adelante.clone(), fuerza = 0.45 + c.idx * 0.1;
+  if (forma === 'chorro') humo.exhalar(boca, dir, fuerza);
+  else if (forma === 'aros') { humo.exhalar(boca, dir, 0.25); for (let i = 0; i < Math.min(4, c.idx + 1); i++) setTimeout(() => humo.aro(xr.boca(), xr.adelante.clone(), 0.035 + i * 0.01), 300 + i * 380); }
+  else if (forma === 'nariz') {
+    // dos chorritos por la nariz, hacia abajo: muy de dragón
+    const lado = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
+    for (const s of [-1, 1]) humo.exhalar(boca.clone().add(new THREE.Vector3(0, 0.035, 0)).addScaledVector(lado, s * 0.012), dir.clone().add(new THREE.Vector3(0, -0.7, 0)).addScaledVector(lado, s * 0.15).normalize(), 0.3);
+  } else if (forma === 'bola') {
+    // una bola de humo que flota delante: tócala y revienta
+    J.bolas.push({ centro: boca.clone().addScaledVector(dir, 0.12), vel: dir.clone().multiplyScalar(0.12).add(new THREE.Vector3(0, 0.02, 0)), t: 0, cada: 0 });
+    if (!J.yaBola) { J.yaBola = true; setTimeout(() => ui.cartela('Una bola de humo. Tócala.', 2.5), 600); }
+  }
+  acabarSoltar(c, false);
+}
+function acabarSoltar(c, conMicro) {
+  ui.instruccion(null);
+  if (!conMicro) sonido('fiuuu', { volumen: 0.3 });
+  if (c.idx >= 3) frase('epica'); else if (Math.random() < 0.5) frase('bien');
+  J.calada = null;
   J.pasesSinPasar++;
   if (J.pasesSinPasar >= 2 && !J.pidio) { J.pidio = true; setTimeout(() => frase('pide'), 1500); }
+}
+function pasoBolas(dt) {
+  for (const b of J.bolas) {
+    b.t += dt; b.cada -= dt; b.centro.addScaledVector(b.vel, dt); b.vel.multiplyScalar(1 - 0.3 * dt);
+    if (b.cada <= 0) { b.cada = 0.07; humo.soltar({ pos: b.centro.clone().add(new THREE.Vector3().randomDirection().multiplyScalar(0.03)), tam: 0.05, vida: 0.6, crece: 0.05, sube: 0, frena: 3, brillo: 0.45 }); }
+    for (const m of manos()) {
+      if (m.activa && m.punta.distanceTo(b.centro) < 0.07) {
+        b.t = 99; m.vibrar(0.6, 40); sonido('pop', { volumen: 0.6 });
+        for (let i = 0; i < 14; i++) humo.soltar({ pos: b.centro, vel: new THREE.Vector3().randomDirection().multiplyScalar(0.6), tam: 0.04, vida: 1.6, crece: 0.15, sube: 0.05, frena: 2 });
+      }
+    }
+  }
+  J.bolas = J.bolas.filter(b => b.t < 9);
 }
 function toser() {
   J.porro.gastar();
   J.colocon += 3;
   sonido('tos-grande', { volumen: 0.8 });
-  const boca = xr.boca();
   for (let i = 0; i < 3; i++) setTimeout(() => humo.exhalar(xr.boca(), xr.adelante.clone().add(new THREE.Vector3(0, -0.3, 0)), 0.9), i * 280);
   lasslow.pose('riendo', { rebote: 0.25 }); sonido('risa-lasslow', { en: lasslow.grupo, volumen: 0.6 });
   setTimeout(() => lasslow.pose('base'), 2200);
@@ -330,53 +392,151 @@ function pasoFumar(dt) {
   } else if (c.estado === 'dentro') {
     const nivel = nivelDe(c.valor);
     const freno = nivel ? [1, 1, 1, 0.6, 0.45, 0.32, 0.3][NIVELES_CALADA.indexOf(nivel)] : 1;
-    c.valor += dt * 44 * freno;
+    c.valor += dt * 40 * freno;
     ui.medir(c.valor, NIVELES_CALADA, CENTRO_CALADA, xr.cabeza, xr.cabezaQ);
-    if (Math.random() < dt * 12) porro.mano?.vibrar(0.12, 12);
+    if (Math.random() < dt * 12) porro.mano?.vibrar(0.12 + c.valor / 400, 12);
     if (c.valor >= 100) toser();
     else if (porro.boquillaMundo(_a).distanceTo(boca) > 0.09) acabarCalada();
   } else if (c.estado === 'aguanta') {
     c.t += dt;
-    const mic = leerMicro(dt);
-    if (mic.sopla) soltarHumo(0.5 + mic.nivel);
-    else if (c.t > (hayMicro() ? 4 : 1.1)) soltarHumo(0.4 + c.idx * 0.1);
+    if (hayMicro()) soltarConMicro(dt, c);
+    else if (c.t > 1.1) soltarSolo(c);
   }
-  // pasarlo: la boquilla cerca de la boca de un colega
+  // pasarlo: al acercarlo, el colega se inclina y lo pide; en su boca, lo coge
   if (!J.calada && porro.mano && porro.encendido) {
     for (const p of [lasslow, blancaso]) {
-      if (porro.boquillaMundo(_a).distanceTo(p.bocaMundo(_b)) < 0.22) { pasar(p); break; }
+      const d = porro.boquillaMundo(_a).distanceTo(p.bocaMundo(_b));
+      p.inclina = d < 0.6 ? 1 - d / 0.6 : 0;
+      if (d < 0.6 && !p.pidiendo) { p.pidiendo = true; p.empujon(0.12); if (Math.random() < 0.5) p.decir(p === lasslow ? '¡Trae, trae!' : 'Por fin. Apuntado.'); }
+      if (d > 0.8) p.pidiendo = false;
+      if (d < 0.22) { pasar(p); break; }
     }
-  }
+  } else for (const p of [lasslow, blancaso]) p.inclina = 0;
   if (porro.consumido && !J.calada && porro.mano) acabarPorro();
 }
 
-async function pasar(p) {
+// el colega fuma: calada (la brasa se enciende en su boca), aguanta temblando, suelta hacia arriba y reacciona
+async function fumaColega(p) {
   const porro = J.porro;
-  porro.mano.vibrar(0.5, 40);
-  porro.mano = null; J.pasesSinPasar = 0; J.pidio = false;
   J.enManos = p;
   await p.pose('fumando-calada', { rebote: 0.15 });
-  await espera(1.3);
+  for (let i = 0; i < 4; i++) { await espera(0.4); p.empujon(0.04); }
   await p.pose('fumando-aguanta', { rebote: 0.1 });
   porro.gastar();
-  await espera(1.0);
-  await p.pose('fumando-suelta', { rebote: 0.2 });
-  const hacia = xr.cabeza.clone().sub(p.bocaMundo(_b)).normalize().add(new THREE.Vector3(0, 0.5, 0)).normalize();
-  humo.exhalar(p.bocaMundo(new THREE.Vector3()), hacia, 0.55);
-  if (p === blancaso && J.mundo === 'humo' && Math.random() < 0.4) { await espera(1); await p.pose('derritiendose', { rebote: 0.2 }); di('blancaso', 'Estoy bien. Estoy bien.'); await espera(1.6); }
-  else await espera(1.2);
+  for (let i = 0; i < 4; i++) { await espera(0.32); p.empujon(0.06); }
+  await p.pose('fumando-suelta', { rebote: 0.25 });
+  sonido('fiuuu', { en: p.grupo, volumen: 0.4, tono: 0.85 + Math.random() * 0.3 });
+  const b = p.bocaMundo(new THREE.Vector3());
+  const hacia = xr.cabeza.clone().sub(b).normalize().add(new THREE.Vector3(0, 0.9, 0)).normalize();
+  humo.exhalar(b, hacia, 0.75);
+  if (J.mundo === 'humo' && Math.random() < 0.6) setTimeout(() => humo.aro(p.bocaMundo(new THREE.Vector3()), hacia.clone(), 0.04), 500);
+  await espera(1.4);
+  // la reacción, distinta en cada mundo
+  if (J.mundo === 'humo') {
+    if (p === blancaso && Math.random() < 0.45) { await p.pose('derritiendose', { rebote: 0.2 }); di('blancaso', 'Estoy bien. Estoy bien.'); await espera(2); }
+    else if (p === lasslow && Math.random() < 0.5) { await p.pose('risa-floja', { rebote: 0.3 }); sonido('risa-lasslow', { en: p.grupo, volumen: 0.6 }); await espera(2); }
+    else { await p.pose('fumado', { rebote: 0.15 }); await espera(1.6); }
+  } else { await p.pose('riendo', { rebote: 0.15 }); await espera(1.2); }
   await p.pose('base', { rebote: 0.15 });
-  frase('devuelve');
   J.colocon += 2; // el ambiente también cuenta
-  J.enManos = null; J.ofrecido = true; // flota delante de ti hasta que lo coges
+}
+async function pasar(p) {
+  const porro = J.porro;
+  const m = porro.mano;
+  m.vibrar(0.7, 50); setTimeout(() => m.vibrar(0.35, 40), 130); // se nota que te lo cogen
+  sonido('fup', { en: p.grupo, volumen: 0.3, tono: 1.4 });
+  porro.mano = null; J.pasesSinPasar = 0; J.pidio = false; p.pidiendo = false; p.inclina = 0;
+  await fumaColega(p);
+  // la ronda: a veces se lo pasa al otro antes de devolvértelo
+  const otro = p === lasslow ? blancaso : lasslow;
+  let quien = p;
+  if (Math.random() < 0.55 && !porro.consumido) {
+    di(p === lasslow ? 'lasslow' : 'blancaso', p === lasslow ? 'Toma, Blancaso. Que tú lo apuntas.' : 'Lasslow. Te toca. Una.');
+    J.enManos = null; J.vuela = { desde: p.bocaMundo(new THREE.Vector3()), hasta: otro, t: 0 };
+    sonido('fiu', { volumen: 0.4 });
+    await espera(0.7); J.vuela = null;
+    await fumaColega(otro); quien = otro;
+  }
+  frase('devuelve');
+  // te lo tiende: lo sujeta hacia ti hasta que lo coges (si no llegas, al rato viene solo)
+  J.enManos = null; J.ofrecido = { quien, t: 0 };
 }
 
 function acabarPorro() {
   const porro = J.porro;
   humo.exhalar(porro.puntaMundo(), new THREE.Vector3(0, 1, 0), 0.4);
   escena.remove(porro.grupo); J.porro = null;
-  di('blancaso', 'Se acabó. Lo he contado: ocho.');
+  di('blancaso', 'Se acabó. Lo he contado: catorce.');
   setTimeout(() => { if (!J.porro && J.fase !== 'portada') sacarBandeja(); }, 3500);
+}
+
+// ---------- cosas que se cogen y se tiran (física) ----------
+async function crearCosas() {
+  const lata = (color) => {
+    const g = new THREE.Group();
+    const cil = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.12, 14), new THREE.MeshBasicMaterial({ color }));
+    const tinta = new THREE.Mesh(cil.geometry, new THREE.MeshBasicMaterial({ color: '#140c1c', side: THREE.BackSide })); tinta.scale.setScalar(1.08);
+    const tapa = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.004, 14), new THREE.MeshBasicMaterial({ color: '#c8c8d0' })); tapa.position.y = 0.061;
+    g.add(cil, tinta, tapa); return g;
+  };
+  const dibujo = async (nombre, alto) => {
+    const t = await img(nombre); const asp = t.image.width / t.image.height;
+    return new THREE.Mesh(new THREE.PlaneGeometry(alto * asp, alto), new THREE.MeshBasicMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide }));
+  };
+  const cojin = () => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 10), new THREE.MeshBasicMaterial({ color: '#ff5fa2' }));
+    m.scale.set(1, 0.45, 1);
+    const t = new THREE.Mesh(m.geometry, new THREE.MeshBasicMaterial({ color: '#140c1c', side: THREE.BackSide })); t.scale.setScalar(1.06); m.add(t);
+    return m;
+  };
+  J.cosas = { normal: [], humo: [] };
+  const poner = (mundo, obj, radio, extra = {}) => { obj.visible = false; escena.add(obj); J.cosas[mundo].push({ obj, radio, extra }); };
+  poner('normal', lata('#e8463a'), 0.04);
+  poner('normal', await dibujo('obj-bolsa-salado.png', 0.16), 0.06);
+  poner('humo', lata('#4d8bff'), 0.04); poner('humo', lata('#7ee081'), 0.04);
+  poner('humo', cojin(), 0.1, { rebote: 0.15 }); poner('humo', cojin(), 0.1, { rebote: 0.15 });
+  poner('humo', await dibujo('obj-vinilo.png', 0.2), 0.08);
+  poner('humo', await dibujo('obj-donut.png', 0.1), 0.05);
+}
+// saca las cosas del mundo al que llegas (alrededor tuyo, a mano) y guarda las del otro
+function repartirCosas(mundo) {
+  if (!J.cosas) return;
+  for (const [m, lista] of Object.entries(J.cosas)) for (const k of lista) {
+    if (k.c) { fisica.quitar(k.c); k.c = null; }
+    k.obj.visible = m === mundo;
+  }
+  const f = J.dirPuerta.clone().setY(0).normalize(), lat = new THREE.Vector3(-f.z, 0, f.x);
+  J.cosas[mundo].forEach((k, i) => {
+    const base = mundo === 'humo'
+      ? unake.grupo.localToWorld(new THREE.Vector3((i - 2.5) * 0.3, 0.5, -1.25))
+      : xr.cabeza.clone().addScaledVector(f, 0.55).addScaledVector(lat, (i ? 1 : -1) * 0.35).setY(0.6);
+    k.obj.position.copy(base); k.obj.rotation.set(0, Math.random() * 6, 0);
+    k.c = fisica.anadir(k.obj, {
+      radio: k.radio, rebote: k.extra.rebote ?? 0.35,
+      alGolpear: (c, info) => { if (info.fuerza > 1) sonido(k.radio > 0.09 ? 'chof' : 'lata', { en: c.obj, volumen: Math.min(0.7, info.fuerza / 6), tono: 0.9 + Math.random() * 0.2 }); },
+    });
+  });
+}
+const AYES = {
+  lasslow: ['¡Eh! Que soy un señor.', 'Perdón, perdón… ¡pero si has sido tú!', '¡Ay! Me ha dado la risa.'],
+  blancaso: ['Apuntado. Me has dado.', 'Otra vez no…', 'Eso cuenta como agresión. La apunto.'],
+};
+function golpesAColegas() {
+  for (const c of fisica.cuerpos) {
+    if (c.cogido || c.dormido || c.vel.lengthSq() < 2.2) continue;
+    for (const [id, p] of [['lasslow', lasslow], ['blancaso', blancaso]]) {
+      if (!p.grupo.visible || (p.ayEspera ?? 0) > J.t) continue;
+      const centro = p.grupo.position.clone().add(new THREE.Vector3(0, (p.alto ?? 1) * 0.55, 0));
+      if (c.obj.position.distanceTo(centro) < (p.alto ?? 1) * 0.35 + c.radio) {
+        p.ayEspera = J.t + 1.5;
+        c.vel.multiplyScalar(-0.35);
+        sonido('bonk', { en: p.grupo, volumen: 0.7 });
+        p.pose(J.mundo === 'humo' ? 'horror' : 'sorprendido', { rebote: 0.35 });
+        setTimeout(() => p.pose('base', { rebote: 0.1 }), 1500);
+        p.decir(sinRepetir('ay-' + id, AYES[id]));
+      }
+    }
+  }
 }
 
 // ---------- los dos mundos ----------
@@ -384,6 +544,7 @@ function cambiarMundo(aHumo) {
   if (J.transicion) return;
   J.transicion = true;
   sonido('whoosh', { volumen: 0.6 });
+  viaje?.cortar();
   humo.llenar(xr.cabeza.clone(), async () => {
     if (aHumo) {
       // Unaké alrededor de ti, mirando a donde estaban ellos
@@ -392,15 +553,22 @@ function cambiarMundo(aHumo) {
       unake.actualizarProyector();
       unake.grupo.visible = true; puerta.grupo.visible = false; casaFalsa.visible = false;
       escena.background = new THREE.Color('#231a33');
+      fisica.planos = unake.planosFisica();
       const asientos = unake.asientos.map(a => unake.grupo.localToWorld(a.clone()));
       for (const [p, a] of [[lasslow, asientos[0]], [blancaso, asientos[1]]]) { p.grupo.position.copy(a); await p.ponerMundo('humo'); }
+      repartirCosas('humo');
       J.mundo = 'humo'; musica('sofa', 0.32);
+      xr.permitirMovimiento(true);
       setTimeout(() => frase('humo'), 1600);
+      if (!J.yaExplicoMover && J.modo !== 'pc') { J.yaExplicoMover = true; setTimeout(() => ui.cartela('Aquí puedes andar con el joystick izquierdo y girar con el derecho.', 4), 4000); }
     } else {
+      xr.permitirMovimiento(false); // de vuelta a tu sitio real: la casa tiene que cuadrar
       humo.disiparAmbiente();
       unake.grupo.visible = false; puerta.grupo.visible = true; casaFalsa.visible = J.modo !== 'ar';
       escena.background = J.modo === 'ar' ? null : new THREE.Color('#e6dfd2');
+      fisica.planos = []; J.planosEn = 0;
       for (const [p, s] of [[lasslow, J.sitios[0]], [blancaso, J.sitios[1]]]) { p.grupo.position.copy(s); await p.ponerMundo('normal'); }
+      repartirCosas('normal');
       J.mundo = 'normal'; musica('dia', 0.25);
       setTimeout(() => frase('dia'), 1400);
     }
@@ -428,6 +596,12 @@ function director(dt) {
   const cab = xr.cabeza, ms = manos();
   humo.mirarDesde(cab); humo.actualizar(dt);
   ui.actualizar(dt, cab, xr.cabezaQ, ms);
+  // física: de día, contra tus mesas y paredes reales (se refrescan cada segundo)
+  if (J.mundo === 'normal' && xr.sesion) { J.planosEn = (J.planosEn ?? 0) - dt; if (J.planosEn <= 0) { J.planosEn = 1; fisica.planosDesdeXR(xr.planos); } }
+  agarre.actualizar(dt, ms); fisica.actualizar(dt); golpesAColegas(); pasoBolas(dt);
+  viaje?.actualizar(dt, { puede: J.mundo === 'humo' && !J.transicion && !J.calada && !J.enManos && !J.vuela, colocon: J.colocon });
+  vineta.material.opacity = Math.min(0.85, (xr.movimiento?.velocidad ?? 0) / 1.5 * 0.85);
+  vineta.visible = vineta.material.opacity > 0.01;
   for (const p of [lasslow, blancaso]) p.actualizar(dt, cab);
   for (const ta of J.tareas) { ta.t += dt; ta.alAvanzar(Math.min(1, ta.t / ta.dur)); }
   J.tareas = J.tareas.filter(ta => ta.t < ta.dur);
@@ -454,18 +628,35 @@ function director(dt) {
   const porro = J.porro;
   if (porro) {
     if (porro.mano) porro.seguirMano(porro.mano, xr.boca());
-    else if (J.enManos) {
+    else if (J.vuela) {
+      // de un colega al otro, en arco
+      const v = J.vuela; v.t = Math.min(1, v.t + dt / 0.7);
+      const hasta = v.hasta.bocaMundo(_a);
+      porro.grupo.position.lerpVectors(v.desde, hasta, v.t); porro.grupo.position.y += Math.sin(v.t * Math.PI) * 0.25;
+      porro.grupo.rotation.x += dt * 9;
+    } else if (J.enManos) {
       // lo tiene un colega: entre los dedos, junto a su boca
       const b = J.enManos.bocaMundo(_a);
       porro.grupo.position.copy(b).add(_b.set(0, -0.04, 0.03));
       porro.grupo.lookAt(cab);
     } else if (J.ofrecido) {
-      // flota delante de tu pecho hasta que lo pellizcas
-      const meta = cab.clone().addScaledVector(xr.adelante.clone().setY(0).normalize(), 0.33); meta.y = cab.y - 0.3;
-      porro.grupo.position.lerp(meta, Math.min(1, dt * 3));
-      porro.grupo.rotation.y += dt * 1.2;
-      ui.instruccion('Coge el porro con un pellizco');
-      for (const m of ms) if (m.activa && m.empiezaPinza && m.punta.distanceTo(porro.grupo.position) < 0.13) { porro.mano = m; J.ofrecido = false; m.vibrar(0.5, 30); ui.instruccion(null); }
+      // te lo tiende: sujeto hacia ti, a la altura de su mano; si en 7 s no llegas, viene solo
+      const o = J.ofrecido; o.t += dt;
+      let meta;
+      if (o.t < 7) {
+        const b = o.quien.bocaMundo(_a);
+        const hacia = cab.clone().sub(b).setY(0).normalize();
+        meta = b.clone().addScaledVector(hacia, 0.32); meta.y = b.y - 0.18 + Math.sin(J.t * 3) * 0.01;
+        o.quien.inclina = 0.8;
+      } else { meta = cab.clone().addScaledVector(xr.adelante.clone().setY(0).normalize(), 0.33); meta.y = cab.y - 0.3; o.quien.inclina = 0; }
+      porro.grupo.position.lerp(meta, Math.min(1, dt * 4));
+      porro.grupo.lookAt(cab);
+      ui.instruccion('Cógelo de su mano con un pellizco');
+      for (const m of ms) if (m.activa && m.empiezaPinza && m.punta.distanceTo(porro.grupo.position) < 0.14) {
+        porro.mano = m; o.quien.inclina = 0; J.ofrecido = null; ui.instruccion(null);
+        m.vibrar(0.6, 40); setTimeout(() => m.vibrar(0.3, 30), 110); sonido('pop', { volumen: 0.4, tono: 0.8 });
+        break;
+      }
     }
     porro.actualizar(dt, humo);
   }
@@ -493,13 +684,13 @@ function director(dt) {
   if (J.mundo === 'humo' && !J.transicion) {
     J.cadaAmbiente = (J.cadaAmbiente ?? 0) - dt;
     if (J.cadaAmbiente <= 0) {
-      J.cadaAmbiente = 0.45;
+      J.cadaAmbiente = 0.8;
       const a = Math.random() * Math.PI * 2, r = 1.6 + Math.random() * 1.8;
-      humo.soltar({ pos: new THREE.Vector3(cab.x + Math.cos(a) * r, 2.3 + Math.random() * 0.6, cab.z + Math.sin(a) * r), vel: new THREE.Vector3(Math.sin(a) * 0.05, 0, -Math.cos(a) * 0.05), tam: 0.4, vida: 14, crece: 0.05, sube: 0, frena: 0, brillo: 0.15, alfa: 0.55, tamMax: 1.1, ambiente: true });
+      humo.soltar({ pos: new THREE.Vector3(cab.x + Math.cos(a) * r, 2.3 + Math.random() * 0.6, cab.z + Math.sin(a) * r), vel: new THREE.Vector3(Math.sin(a) * 0.05, 0, -Math.cos(a) * 0.05), tam: 0.4, vida: 14, crece: 0.05, sube: 0, frena: 0, brillo: 0.15, alfa: 0.38, tamMax: 0.95, ambiente: true });
     }
   }
   // el colocón baja solo; los mundos cambian con histéresis
-  J.colocon = Math.max(0, Math.min(100, J.colocon - dt * (J.mundo === 'humo' ? 0.28 : 0.06)));
+  J.colocon = Math.max(0, Math.min(100, J.colocon - dt * (J.mundo === 'humo' ? 0.16 : 0.05)));
   if (xr.manos.izquierda.activa) ui.colocon(J.colocon, xr.manos.izquierda);
   if (!J.transicion && !J.calada && J.fase !== 'portada') {
     if (J.mundo === 'normal' && J.colocon >= 30) cambiarMundo(true);

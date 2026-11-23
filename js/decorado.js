@@ -21,7 +21,7 @@ const VERT = /* glsl */`
 const FRAG = /* glsl */`
   uniform sampler2D uMapa;
   uniform vec2 uTam, uFuga;
-  uniform float uF, uOjo, uTipo, uLuz;
+  uniform float uF, uOjo, uTipo, uLuz, uTono, uOnda, uT;
   uniform vec3 uPared, uBaldosa, uJunta;
   varying vec3 vSala;
   #include <fog_pars_fragment>
@@ -53,6 +53,13 @@ const FRAG = /* glsl */`
       dentro = smoothstep(0.0, 0.03, min(borde.x, borde.y));
       color = mix(color, texture2D(uMapa, clamp(uv, 0.001, 0.999)).rgb, dentro);
     }
+    // momentos de colocón: el color gira (uTono, radianes) y una onda suave recorre la sala (uOnda 0-1)
+    if (uTono != 0.0) {
+      const vec3 k = vec3(0.57735);
+      float c = cos(uTono), s = sin(uTono);
+      color = color * c + cross(k, color) * s + k * dot(k, color) * (1.0 - c);
+    }
+    if (uOnda > 0.0) color *= 1.0 + uOnda * 0.22 * sin(length(vSala.xz) * 3.0 - uT * 2.2);
     gl_FragColor = vec4(color * uLuz, 1.0);
     #include <colorspace_fragment>
     #include <fog_fragment>
@@ -78,7 +85,7 @@ export async function salaDesdeFoto(def) {
   const grupo = new THREE.Group(); grupo.name = 'sala';
   const uniforms = {
     uMapa: { value: mapa }, uTam: { value: new THREE.Vector2(W, H) }, uFuga: { value: new THREE.Vector2(vx, vy) },
-    uF: { value: F }, uOjo: { value: ojo }, uSalaInv: { value: new THREE.Matrix4() }, uLuz: { value: 1 },
+    uF: { value: F }, uOjo: { value: ojo }, uSalaInv: { value: new THREE.Matrix4() }, uLuz: { value: 1 }, uTono: { value: 0 }, uOnda: { value: 0 }, uT: { value: 0 },
     uPared: { value: new THREE.Color(def.pared) }, uBaldosa: { value: new THREE.Color(def.baldosa) }, uJunta: { value: new THREE.Color(def.junta) },
   };
   const mats = [];
@@ -98,12 +105,13 @@ export async function salaDesdeFoto(def) {
   const izq = plano(largo, alto, mat(1)); izq.rotation.y = Math.PI / 2; izq.position.set(xl, alto / 2, zMedio);
   const der = plano(largo, alto, mat(1)); der.rotation.y = -Math.PI / 2; der.position.set(xr, alto / 2, zMedio);
   grupo.add(suelo_, techo, fondoM, izq, der);
+  const paredes = [fondoM, izq, der];
   // la pared de detrás de ti: el rincón del sofá, de pared a pared
   if (def.paredDetras) {
     const t = await textura(def.paredDetras);
     const atras = plano(ancho, alto, new THREE.MeshBasicMaterial({ map: t, fog: true }));
     atras.rotation.y = Math.PI; atras.position.set(xMedio, alto / 2, detras);
-    grupo.add(atras);
+    grupo.add(atras); paredes.push(atras);
   }
   const medidas = { mpp, D, xl, xr, alto, ancho };
   return {
@@ -111,6 +119,17 @@ export async function salaDesdeFoto(def) {
     // llamar cuando se mueva la sala: el proyector va pegado a ella
     actualizarProyector() { grupo.updateMatrixWorld(true); uniforms.uSalaInv.value.copy(grupo.matrixWorld).invert(); },
     luz(v) { uniforms.uLuz.value = v; },
+    efectos({ tono = 0, onda = 0, t = 0 } = {}) { uniforms.uTono.value = tono; uniforms.uOnda.value = onda; uniforms.uT.value = t; },
+    // las paredes como planos de física (normal = +Y del plano, como los de las gafas)
+    planosFisica() {
+      grupo.updateMatrixWorld(true);
+      const rot = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+      return paredes.map(m => {
+        const matriz = m.matrixWorld.clone().multiply(rot);
+        const g = m.geometry.parameters;
+        return { orientacion: 'vertical', matriz, inv: matriz.clone().invert(), medio: [g.width / 2, g.height / 2] };
+      });
+    },
   };
 }
 
