@@ -16,6 +16,9 @@ import { activarMicro, leerMicro, hayMicro } from './microfono.js';
 import { Fisica, Agarre } from './fisica.js';
 import { Viaje } from './viaje.js';
 import { Recreativa } from './recreativa.js';
+import { MotorHistoria } from './historia/motor.js';
+import { Escenas } from './historia/escenas.js';
+import { MunecaHistoria } from './historia/muneca.js';
 
 const $ = id => document.getElementById(id);
 const avisoEl = $('aviso');
@@ -60,7 +63,7 @@ const vineta = (() => {
 const ui = new UI(escena);
 const xr = montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso });
 const manos = () => [xr.manos.derecha, xr.manos.izquierda];
-let humo, puerta, unake, lasslow, blancaso, viaje, recreativa;
+let humo, puerta, unake, lasslow, blancaso, viaje, recreativa, motor, escenasH, munecaH;
 const fisica = new Fisica(), agarre = new Agarre(fisica);
 
 // ---------- estado del director ----------
@@ -118,6 +121,16 @@ async function cargar() {
   viaje = new Viaje({ escena, humo, sala: unake, personajes: [lasslow, blancaso], fisica, sonido, xr, img });
   await crearCosas();
   recreativa = new Recreativa({ escena, xr, ui, sonido, musica }); recreativa.maquina.visible = false;
+  // la historia y la economía: el propio código del 2D en el iframe del puente (docs/historia.md)
+  motor = await MotorHistoria.crear();
+  recreativa.cargando = Promise.resolve(motor.puente);
+  escenasH = new Escenas({ escena, xr, mundo: () => J.mundo, prestados: { lasslow, blancaso } });
+  munecaH = new MunecaHistoria({ motor, alPulsar: o => accionHistoria(o.accion) });
+  motor.on('alPista', q => (q.de === 'lasslow' || q.de === 'blancaso') ? di(q.de, q.texto) : ui.cartela(q.texto, 5));
+  motor.on('alCobro', c => { if (c.situacion) setTimeout(() => ui.cartela(c.situacion, 4), 6500); });
+  motor.on('alDesmayo', ({ perdidos }) => { J.colocon = 0; ui.cartela(`¡Te ha dado un amarillo! Despiertas en tu cuarto${perdidos ? ` (−${perdidos} monchis)` : ''}.`, 5); });
+  motor.on('alAcabarCapitulo', e => sonido(e.final ? 'oooh' : 'campanita', { volumen: 0.6 }));
+  J.motor = motor;
   puerta.grupo.visible = false; unake.grupo.visible = false; lasslow.grupo.visible = false; blancaso.grupo.visible = false;
   precargarSonidos(['lata', 'bonk', 'nam', 'fiu', 'tiroriro', 'zumbido-m', 'toc-toc', 'pin-pin', 'puerta', 'chof', 'papel', 'sorbo', 'mechero', 'mechero-falla', 'fup', 'calada', 'tos', 'tos-grande', 'risa-lasslow', 'fiuuu', 'whoosh', 'campanita', 'pop']);
 }
@@ -157,7 +170,27 @@ function alSalir() {
 // ---------- fases ----------
 function fase(f) { J.fase = f; J.enFase = 0; }
 
+async function contarEscena() {
+  const e = motor.tomarEscena(); if (!e) return;
+  const antes = J.fase; fase('historia'); ui.instruccion(null); ui.quitarTarjetas();
+  try { await escenasH.contar(e, { objetivos: () => motor.objetivos() }); }
+  catch (err) { console.error('[historia] escena', err); }
+  finally { fase(antes); motor.escenaContada(); }
+}
+const libreParaHistoria = () => ['liar', 'fumar', 'encender'].includes(J.fase) && !J.calada && !J.enManos
+  && !J.vuela && !J.transicion && !J.minijuego && !J.menu && !escenasH?.ocupada;
+function accionHistoria(a) {
+  const r = motor.hacer(a); if (!r) return;
+  if (r.tipo === 'recreativa') return jugarRecreativa(r.clave);
+  if (r.tipo === 'nativo') return jugarMinijuego(r.id);
+  if (r.tipo === 'barrio') return abrirBarrio();
+  if (r.tipo === 'menu') { if (r.motivo) ui.cartela('Te faltan monchis: gánalos jugando.', 3); return abrirMenu(); }
+  if (r.tipo === 'fumar') { if (!J.porro && !J.liar) sacarBandeja(); return; }
+  if (r.tipo === 'pasar') return ui.cartela('Acércale el porro encendido a Blancaso.', 3);
+}
 async function empezar() {
+  // la intro del capítulo 1 (si toca) antes de la puerta
+  try { while (motor.escenaPendiente) await contarEscena(); } catch (e) { console.error(e); }
   fase('buscarPared');
   ui.cartela('Tu casa. De día. Mira a una pared libre.', 3.5);
   musica('dia', 0.25);
@@ -224,6 +257,7 @@ function elegir(ops) {
 }
 
 async function abrirPuerta() {
+  motor?.avisar('puerta');
   ui.instruccion(null);
   puerta.abrir();
   fase('salen');
@@ -311,6 +345,7 @@ function acabarCalada() {
   const nivel = nivelDe(c.valor);
   const idx = nivel ? NIVELES_CALADA.indexOf(nivel) : -1;
   J.porro.gastar();
+  motor?.avisar('calada', { nivel: idx });
   if (!nivel) {
     if (c.valor < 25) { J.calada = null; dejarDeFumar(); return; } // ni la ha probado: no cuenta
     J.colocon += 4; ui.cartela('Floja.', 1.2);
@@ -451,6 +486,7 @@ async function fumaColega(p) {
   J.colocon += 2; // el ambiente también cuenta
 }
 async function pasar(p) {
+  motor?.avisar('pase', { a: p === lasslow ? 'lasslow' : 'blancaso' });
   const porro = J.porro;
   const m = porro.mano;
   m.vibrar(0.7, 50); setTimeout(() => m.vibrar(0.35, 40), 130); // se nota que te lo cogen
@@ -473,6 +509,7 @@ async function pasar(p) {
 }
 
 function acabarPorro() {
+  motor?.avisar('porro');
   const porro = J.porro;
   humo.exhalar(porro.puntaMundo(), new THREE.Vector3(0, 1, 0), 0.4);
   escena.remove(porro.grupo); J.porro = null;
@@ -567,15 +604,17 @@ async function abrirMenu() {
   const c = xr.cabeza.clone().addScaledVector(f, 0.42); c.y = xr.cabeza.y - 0.22;
   sonido('pop', { volumen: 0.4 });
   // dos filas: los minijuegos arriba; la recreativa, el barrio y «Seguir» abajo
+  const oh = motor?.objetivos()?.historia;
   const alElegir = (texto) => {
     J.menu = false; ui.quitarTarjetas();
+    if (texto.startsWith('★ ')) return accionHistoria(oh.accion);
     if (texto === 'El barrio') { abrirBarrio(); return; }
     if (texto === 'Recreativa (2D)') { recreativa.elegir(clave => { if (clave) jugarRecreativa(clave); }); return; }
     const m = disponibles.find(x => x.texto === texto);
     if (m) jugarMinijuego(m.id);
   };
   ui.tarjetasEn(disponibles.map(m => m.texto), c.clone().add(new THREE.Vector3(0, 0.05, 0)), f.clone().negate(), alElegir);
-  ui.tarjetasEn(['Recreativa (2D)', 'El barrio', 'Seguir'], c.clone().add(new THREE.Vector3(0, -0.06, 0)), f.clone().negate(), alElegir, { anadir: true });
+  ui.tarjetasEn([...(oh?.accion?.texto ? ['★ ' + oh.accion.texto] : []), 'Recreativa (2D)', 'El barrio', 'Seguir'], c.clone().add(new THREE.Vector3(0, -0.06, 0)), f.clone().negate(), alElegir, { anadir: true });
   setTimeout(() => { if (J.menu && ui.tarjetas.length) { ui.quitarTarjetas(); J.menu = false; } }, 12000);
 }
 async function jugarMinijuego(id) {
@@ -597,6 +636,7 @@ async function jugarMinijuego(id) {
     delante: (d = 1, alto = null) => { const f = xr.adelante.clone().setY(0).normalize(); const q = xr.cabeza.clone().addScaledVector(f, d); q.y = alto ?? 0; return q; },
     mesa: () => xr.mesaCerca(),
     terminar: ({ puntos, gana = true, linea = '' }) => {
+      motor?.avisar('minijuego', { clave: mod.clave, puntos, gana, colocon: J.colocon });
       const n = mod.umbrales.filter(u => puntos >= u).length;
       J.resultados.push({ clave: mod.clave, puntos, gana, estrellas: n });
       ui.cartela(`${mod.titulo}: ${puntos} puntos · ${'★'.repeat(n)}${'☆'.repeat(3 - n)}${linea ? ' · ' + linea : ''}`, 6);
@@ -625,6 +665,7 @@ async function jugarRecreativa(clave) {
   const r = await recreativa.jugar(clave, { mundo: J.mundo });
   if (r && !r.abandonado) {
     const n = r.estrellas ?? 0; J.resultados.push({ clave, puntos: r.puntos, gana: r.gana, estrellas: n });
+    motor?.avisar('minijuego', { clave, puntos: r.puntos, gana: r.gana, colocon: J.colocon });
     ui.cartela(`${r.titulo || clave}: ${r.puntos} puntos · ${'★'.repeat(n)}${'☆'.repeat(3 - n)}`, 5);
     sonido(n >= 2 ? 'oooh' : 'campanita', { volumen: 0.6 });
   }
@@ -725,6 +766,7 @@ async function entrarSala(id) {
       nueva.grupo.position.copy(xr.cabeza).setY(0);
       nueva.grupo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), f);
       escena.add(nueva.grupo); nueva.actualizarProyector();
+      motor?.avisar('sala', { id, gente: gente.map(r => r.id === 'la-pompa' ? 'pompa' : r.id) });
       for (const r of gente) { r.grupo.position.copy(nueva.grupo.localToWorld(r.userData.local.clone())); escena.add(r.grupo); }
       escena.background = new THREE.Color('#1a1426');
       fisica.planos = []; xr.permitirMovimiento(true);
@@ -805,6 +847,7 @@ function cambiarMundo(aHumo) {
       J.mundo = 'normal'; musica('dia', 0.25);
       setTimeout(() => frase('dia'), 1400);
     }
+    motor?.avisar('mundo', { mundo: J.mundo });
     J.transicion = false;
   });
 }
@@ -835,7 +878,13 @@ function director(dt) {
   recreativa?.actualizar(dt, ms);
   if (J.fase === 'barrio') { if (B.maqueta?.grupo.visible) B.maqueta.actualizar(dt, ms, cab); for (const r of B.gente) r.actualizar(dt, cab); }
   if (J.minijuego) { try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
-  else if (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender') mirarMenu();
+  else if (!escenasH?.ocupada && (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender')) mirarMenu();
+  if (motor && J.fase !== 'portada' && J.fase !== 'prueba') {
+    motor.paso(dt, { colocon: J.colocon });
+    escenasH.actualizar(dt, ms);
+    if (xr.manos.izquierda.activa) munecaH.actualizar(dt, xr.manos.izquierda, xr.manos.derecha);
+    if (motor.escenaPendiente && libreParaHistoria()) contarEscena();
+  }
   viaje?.actualizar(dt, { puede: J.mundo === 'humo' && !J.transicion && !J.calada && !J.enManos && !J.vuela, colocon: J.colocon });
   vineta.material.opacity = Math.min(0.85, (xr.movimiento?.velocidad ?? 0) / 1.5 * 0.85);
   vineta.visible = vineta.material.opacity > 0.01;
@@ -858,6 +907,7 @@ function director(dt) {
     const porro = J.liar.actualizar(dt, ms, xr.boca());
     if (porro) {
       J.porro = porro; escena.remove(J.liar.grupo); J.liar = null;
+      motor?.avisar('liar');
       di('lasslow', 'Ahí está. Precioso.');
       darMechero();
     }

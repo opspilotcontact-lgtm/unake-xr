@@ -137,7 +137,19 @@ await pag.evaluate(() => {
     J.botFin = true;
   }
   const it = principal();
-  J.bot = (d, m) => { dt = d; manos = m; const r = it.next(); if (r.done) J.bot = null; };
+  // las escenas de la historia se pasan con un pellizco (mano izquierda), como en las gafas
+  let tPinza = 0, escenas = 0;
+  J.bot = (d, m) => {
+    dt = d; manos = m;
+    if (J.fase === 'historia') {
+      tPinza += d; const iz = m.izquierda;
+      iz.pinzaAntes = iz.pinza; iz.activa = true; iz.pinza = (tPinza % 0.5) < 0.12;
+      if (iz.pinza && !iz.pinzaAntes) escenas++;
+      J.botEscenas = escenas;
+      return;
+    }
+    const r = it.next(); if (r.done) J.bot = null;
+  };
   J.prueba.arrancar();
   J.prueba.mirar(0, 1.6, 0, 0, -0.05);
 });
@@ -157,7 +169,7 @@ while (Date.now() - t0 < 150000) {
   if (e.fin || (!e.bot && e.fase !== 'portada' && Date.now() - t0 > 3000)) break;
   await pag.waitForTimeout(250);
 }
-const r = await pag.evaluate(() => ({ fin: !!window.__unake.botFin, fase: window.__unake.fase, mundo: window.__unake.mundo, colocon: window.__unake.colocon.toFixed(1) }));
+const r = await pag.evaluate(() => ({ pellizcosEnEscenas: window.__unake.botEscenas || 0, cap: window.__unake.motor?.estado?.capitulo ?? window.__unake.motor?.cap, fin: !!window.__unake.botFin, fase: window.__unake.fase, mundo: window.__unake.mundo, colocon: window.__unake.colocon.toFixed(1) }));
 console.log(JSON.stringify(r));
 console.log(errores.length ? errores.join('\n') : 'sin errores');
 await nav.close();

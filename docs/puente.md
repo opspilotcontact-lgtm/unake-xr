@@ -14,7 +14,7 @@ renderer.setAnimationLoop(() => { p.actualizar(); renderer.render(escena, camara
 p.cerrar();                                       // detiene el minijuego y suelta lo que solo usaba él
 ```
 
-Extras: `p.on('resultado' | 'salir' | 'escena', fn)`, `p.escena()` (la escena Phaser en curso), `p.estado()` (el `ESTADO` del puente), `p.desbloquearAudio()`, `p.audioContext`, `p.memoria()`, `p.descargadoMB()`, `p.metricas`, `p.destruir()`. Opciones de `crearPuente`: `renderizador` (`'webgl'` por defecto, `'canvas'`), `fpsMax` (60), `musica` (true), `panel` (true), `esperaSinPanel` (1500 ms), `liberar` (true), `audioContext`. Opciones de `jugar`: `panel`, `mundo` (`'humo'|'normal'`), `nivel`, `estado` (se mezcla en `ESTADO`), `datos` (los de `scene.start`).
+Extras: `p.on('resultado' | 'salir' | 'escena', fn)`, `p.escena()` (la escena Phaser en curso), `p.estado()` (el `ESTADO` del puente), `p.desbloquearAudio()`, `p.audioContext`, `p.memoria()`, `p.descargadoMB()`, `p.metricas`, `p.destruir()`. Opciones de `crearPuente`: `renderizador` (`'webgl'` por defecto, `'canvas'`), `fpsMax` (60), `musica` (true), `panel` (true), `esperaSinPanel` (1500 ms), `liberar` (true), `audioContext`, `clavePartida` (`'unake-xr-puente'`; el motor de historia usa `'unake-xr-partida'`: su ESTADO es la partida del XR, ver `docs/historia.md`). Opciones de `jugar`: `panel`, `mundo` (`'humo'|'normal'`), `nivel`, `estado` (se mezcla en `ESTADO`), `datos` (los de `scene.start`).
 
 Prueba sin gafas: `puente.html` (teclado del PC reenviado con `p.tecla`, clic sobre la pantalla → raycast → `p.puntero`). `?r=canvas` usa canvas 2D; `?sin` no crea el puente (para medir).
 

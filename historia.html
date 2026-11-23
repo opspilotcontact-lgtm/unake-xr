@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>UNAKÉ XR · historia</title>
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff3e6; font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  [hidden] { display: none !important; }
+  #panel { position: fixed; right: 8px; top: 8px; width: 300px; max-height: calc(100% - 16px); overflow: auto; background: rgba(18,12,31,.86); border: 2px solid #1a0f24; padding: 8px; font-size: 12px; z-index: 5; }
+  #panel button, #panel select { font: inherit; margin: 2px 1px; padding: 3px 6px; background: #ffe066; color: #1a0f24; border: 2px solid #1a0f24; cursor: pointer; }
+  #panel select { background: #fff3e6; }
+  #estado { white-space: pre-wrap; color: #ffd23f; margin: 4px 0 6px; font-weight: 600; }
+  #log { white-space: pre-wrap; color: #cbb8e6; max-height: 160px; overflow: hidden; font-size: 11px; }
+  #panel h2 { font-family: 'Caprasimo', serif; font-weight: 400; margin: 0 0 4px; font-size: 18px; color: #ffd6ea; }
+  #portada { position: fixed; left: 8px; bottom: 8px; z-index: 5; }
+  #portada button { font-family: 'Caprasimo', serif; font-size: 16px; padding: 6px 12px; border: 3px solid #1a0f24; background: #ffe066; color: #1a0f24; }
+  body.foto #panel, body.foto #portada { display: none; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","iwer":"https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.module.min.js","@iwer/devui":"https://cdn.jsdelivr.net/npm/@iwer/devui@2.8.0/build/iwer-devui.module.min.js","@iwer/sem":"https://cdn.jsdelivr.net/npm/@iwer/sem@2.8.0/build/es-min/index.min.js"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<section id="portada"><button id="btnVR" disabled>Ver en las gafas</button></section>
+<aside id="panel">
+  <h2>Historia · prueba</h2>
+  <div id="estado">Cargando…</div>
+  <div>
+    <button data-a="pasar">Pasar viñeta (espacio)</button>
+    <button data-a="cumplir">Cumplir objetivo (O)</button>
+    <button data-a="boton">Botón del objetivo (B)</button>
+  </div>
+  <div>
+    <select id="clave"></select>
+    <button data-a="gana">Gana</button><button data-a="pierde">Pierde</button>
+  </div>
+  <div>
+    <button data-a="liar">Liar</button><button data-a="calada">Calada</button><button data-a="pase">Pase a Blancaso</button><button data-a="puerta">Puerta</button><button data-a="humo">Día / humo</button>
+  </div>
+  <div>
+    <select id="sala">
+      <option>plaza</option><option>fuera</option><option>tienda</option><option>dentro</option><option>cocina</option><option>reservado</option><option>bano</option><option>cuarto</option><option>feria</option>
+    </select>
+    <button data-a="sala">Entrar en la sala</button>
+  </div>
+  <div>
+    <button data-a="hucha">Hucha +50</button><button data-a="monchis">Encargo +100</button><button data-a="seguir">Seguir (pendiente)</button>
+  </div>
+  <div>
+    <button data-a="papel">Comprar papel</button><button data-a="mejorar">Mejorar bar</button><button data-a="caja">Cobrar caja</button>
+  </div>
+  <div>
+    <button data-a="muneca">Plegar muñeca (M)</button><button data-a="cerca">Muñeca de cerca</button><button data-a="reiniciar">Partida nueva</button>
+  </div>
+  <div id="log"></div>
+</aside>
+<script type="module">
+  if (new URLSearchParams(location.search).has('emular')) await import('./js/emulador.js');
+  const { arrancar } = await import('./js/historia/pagina.js');
+  if (new URLSearchParams(location.search).has('foto')) document.body.classList.add('foto');
+  await arrancar();
+</script>
+</body>
+</html>

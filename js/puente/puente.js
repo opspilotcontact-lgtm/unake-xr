@@ -91,6 +91,9 @@ class Puente {
       liberar: true,           // al cerrar o cambiar de minijuego, se descarga lo que solo usaba el anterior
       audioContext: null,      // el de la página XR, si ya tiene uno
       contenedor: document.body,
+      // dónde guarda el iframe su partida (su 'unake-partida' se redirige aquí). El motor de historia usa
+      // 'unake-xr-partida' para que el ESTADO del iframe SEA la partida del XR (docs/historia.md).
+      clavePartida: CLAVE_PUENTE,
       ...op,
     };
     if (this.op.ancho !== ANCHO || this.op.alto !== ALTO) {
@@ -281,11 +284,13 @@ class Puente {
     this.metricas.arranqueMs = Math.round(performance.now() - t0);
   }
 
-  // localStorage: la partida del original ('unake-partida') se redirige a la del puente. Solo esa clave,
+  // localStorage: la partida del original ('unake-partida') se redirige a la del puente (op.clavePartida). Solo esa clave,
   // y solo dentro del iframe (la página XR conserva su localStorage intacto).
   _redirigirAlmacen(win) {
     const proto = win.Storage.prototype;
-    const cambiar = k => (k === CLAVE_ORIGINAL ? CLAVE_PUENTE : k);
+    const destino = this.op.clavePartida || CLAVE_PUENTE;
+    if (destino === CLAVE_ORIGINAL) throw new Error('Puente: la partida del juego web no se toca');
+    const cambiar = k => (k === CLAVE_ORIGINAL ? destino : k);
     const { getItem, setItem, removeItem } = proto;
     proto.getItem = function (k) { return getItem.call(this, cambiar(k)); };
     proto.setItem = function (k, v) { return setItem.call(this, cambiar(k), v); };
