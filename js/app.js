@@ -704,7 +704,7 @@ function director(dt) {
   humo.mirarDesde(cab); humo.actualizar(dt);
   ui.actualizar(dt, cab, xr.cabezaQ, ms);
   // física: de día, contra tus mesas y paredes reales (se refrescan cada segundo)
-  if (J.mundo === 'normal' && xr.sesion) { J.planosEn = (J.planosEn ?? 0) - dt; if (J.planosEn <= 0) { J.planosEn = 1; fisica.planosDesdeXR(xr.planos); } }
+  if (J.mundo === 'normal' && xr.sesion && !J.minijuego) { J.planosEn = (J.planosEn ?? 0) - dt; if (J.planosEn <= 0) { J.planosEn = 1; fisica.planosDesdeXR(xr.planos); } }
   agarre.actualizar(dt, ms); fisica.actualizar(dt); golpesAColegas(); pasoBolas(dt);
   recreativa?.actualizar(dt, ms);
   if (J.minijuego) { try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
