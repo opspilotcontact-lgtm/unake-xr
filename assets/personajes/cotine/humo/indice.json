@@ -1,0 +1,70 @@
+{
+ "nombre": "cotine",
+ "alto_cuerpo_px": 490,
+ "altura_serie": 210.0,
+ "boca": [
+  -6.8,
+  -247.4
+ ],
+ "ojos": [
+  -6.2,
+  -308.0
+ ],
+ "habla": [
+  "closed",
+  "mid",
+  "open",
+  "round"
+ ],
+ "parpadea": true,
+ "fotos": {
+  "base": {
+   "w": 449,
+   "h": 533,
+   "ax": 235.3,
+   "ay": 493.1
+  },
+  "base-parpadeo": {
+   "w": 449,
+   "h": 533,
+   "ax": 235.3,
+   "ay": 493.1
+  },
+  "base-boca-closed": {
+   "w": 449,
+   "h": 533,
+   "ax": 235.3,
+   "ay": 493.1
+  },
+  "base-boca-mid": {
+   "w": 449,
+   "h": 533,
+   "ax": 235.3,
+   "ay": 493.1
+  },
+  "base-boca-open": {
+   "w": 449,
+   "h": 533,
+   "ax": 235.3,
+   "ay": 493.1
+  },
+  "base-boca-round": {
+   "w": 449,
+   "h": 533,
+   "ax": 235.3,
+   "ay": 493.1
+  },
+  "sacandose-palo": {
+   "w": 461,
+   "h": 732,
+   "ax": 256.3,
+   "ay": 692.1
+  },
+  "plop": {
+   "w": 499,
+   "h": 775,
+   "ax": 285.3,
+   "ay": 735.1
+  }
+ }
+}

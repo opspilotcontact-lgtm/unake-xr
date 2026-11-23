@@ -1,0 +1,106 @@
+{
+ "nombre": "blancaso",
+ "alto_cuerpo_px": 864,
+ "altura_serie": 265,
+ "boca": [
+  0.5,
+  -572.9
+ ],
+ "ojos": [
+  5.9,
+  -628.2
+ ],
+ "habla": [
+  "closed",
+  "mid",
+  "open",
+  "round"
+ ],
+ "parpadea": false,
+ "fotos": {
+  "base": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "base-boca-closed": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "base-boca-mid": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "base-boca-open": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "base-boca-round": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "fumando-aguanta": {
+   "w": 498,
+   "h": 871,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "fumando-calada": {
+   "w": 497,
+   "h": 871,
+   "ax": 254.3,
+   "ay": 867.4
+  },
+  "caminando": {
+   "w": 442,
+   "h": 873,
+   "ax": 294.3,
+   "ay": 868.4
+  },
+  "hablando": {
+   "w": 497,
+   "h": 872,
+   "ax": 254.3,
+   "ay": 867.4
+  },
+  "fumando-mechero": {
+   "w": 498,
+   "h": 872,
+   "ax": 256.3,
+   "ay": 867.4
+  },
+  "riendo": {
+   "w": 501,
+   "h": 872,
+   "ax": 257.3,
+   "ay": 868.4
+  },
+  "sorprendido": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "fumando-suelta": {
+   "w": 584,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  },
+  "fumando-tos": {
+   "w": 498,
+   "h": 872,
+   "ax": 255.3,
+   "ay": 867.4
+  }
+ }
+}

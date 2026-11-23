@@ -1,0 +1,106 @@
+{
+ "nombre": "la-pompa",
+ "alto_cuerpo_px": 807,
+ "altura_serie": 240,
+ "boca": [
+  -8.5,
+  -503.0
+ ],
+ "ojos": [
+  6.0,
+  -603.0
+ ],
+ "habla": [
+  "closed",
+  "mid",
+  "open",
+  "round"
+ ],
+ "parpadea": false,
+ "fotos": {
+  "base": {
+   "w": 467,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 810.0
+  },
+  "base-boca-closed": {
+   "w": 467,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 810.0
+  },
+  "base-boca-mid": {
+   "w": 467,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 810.0
+  },
+  "base-boca-open": {
+   "w": 467,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 810.0
+  },
+  "base-boca-round": {
+   "w": 467,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 810.0
+  },
+  "fumando-aguanta": {
+   "w": 411,
+   "h": 813,
+   "ax": 209.0,
+   "ay": 809.0
+  },
+  "fumando-calada": {
+   "w": 465,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 808.0
+  },
+  "caminando": {
+   "w": 461,
+   "h": 814,
+   "ax": 218.0,
+   "ay": 809.0
+  },
+  "hablando": {
+   "w": 493,
+   "h": 811,
+   "ax": 227.0,
+   "ay": 808.0
+  },
+  "fumando-mechero": {
+   "w": 446,
+   "h": 812,
+   "ax": 219.0,
+   "ay": 808.0
+  },
+  "riendo": {
+   "w": 465,
+   "h": 811,
+   "ax": 234.0,
+   "ay": 808.0
+  },
+  "sorprendido": {
+   "w": 469,
+   "h": 811,
+   "ax": 236.0,
+   "ay": 808.0
+  },
+  "fumando-suelta": {
+   "w": 553,
+   "h": 815,
+   "ax": 221.0,
+   "ay": 810.0
+  },
+  "fumando-tos": {
+   "w": 463,
+   "h": 811,
+   "ax": 233.0,
+   "ay": 808.0
+  }
+ }
+}

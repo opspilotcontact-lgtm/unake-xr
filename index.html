@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>UNAKÉ XR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  :root { --tinta: #fff3e6; --rosa: #ff5fa2; --fondo: #120c1f; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fondo); color: var(--tinta); font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #portada { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; z-index: 5;
+    background: radial-gradient(ellipse at 50% 40%, rgba(255,95,162,.18), transparent 60%), rgba(18,12,31,.86); text-align: center; padding: 24px; }
+  #portada h1 { font-family: 'Caprasimo', serif; font-weight: 400; font-size: clamp(54px, 10vw, 120px); margin: 0; letter-spacing: .02em;
+    color: #ffd6ea; text-shadow: 0 0 18px var(--rosa), 0 0 42px rgba(255,95,162,.6); }
+  #portada p { margin: 0; max-width: 540px; line-height: 1.45; font-size: 16px; opacity: .86; }
+  #portada .botones { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #portada button { font-family: 'Caprasimo', serif; font-size: 24px; padding: 14px 26px; border: 3px solid #1a0f24; background: #ffe066; color: #1a0f24;
+    cursor: pointer; box-shadow: 0 5px 0 #1a0f24; }
+  #portada button.secundario { background: #c9b6ff; font-size: 18px; }
+  #portada button:disabled { opacity: .4; cursor: default; }
+  #portada label { font-size: 14px; opacity: .8; display: flex; gap: 8px; align-items: center; }
+  #portada small { opacity: .55; font-size: 12px; }
+  #aviso { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 10px 16px; background: rgba(0,0,0,.7); font-size: 14px; z-index: 6; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","iwer":"https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.module.min.js","@iwer/devui":"https://cdn.jsdelivr.net/npm/@iwer/devui@2.8.0/build/iwer-devui.module.min.js","@iwer/sem":"https://cdn.jsdelivr.net/npm/@iwer/sem@2.8.0/build/es-min/index.min.js"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<section id="portada">
+  <h1>UNAKÉ</h1>
+  <p>Ponete las gafas, de pie o sentado, con sitio para estirar los brazos. Empezás en tu casa, de día. La puerta de Unaké va a aparecer en tu pared.</p>
+  <div class="botones">
+    <button id="btnAR" disabled>Entrar</button>
+    <button id="btnVR" class="secundario" disabled>Solo realidad virtual</button>
+  </div>
+  <label><input type="checkbox" id="chkMicro" checked> Usar el micro para soplar el humo (opcional, siempre hay botón)</label>
+  <small id="estadoXR">Buscando las gafas…</small>
+  <small>Prueba F0 · solo gafas (Meta Quest 3S)</small>
+</section>
+<div id="aviso" hidden></div>
+<script type="module">
+  // ?emular carga el emulador de gafas en el PC antes que nada
+  if (new URLSearchParams(location.search).has('emular')) await import('./js/emulador.js');
+  await import('./js/app.js');
+</script>
+</body>
+</html>

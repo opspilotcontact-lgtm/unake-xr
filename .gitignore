@@ -1,0 +1,5 @@
+.cert/
+node_modules/
+*.log
+herramientas/pruebas/fotos/
+base/assets/cine/

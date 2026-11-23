@@ -1,0 +1,94 @@
+{
+ "nombre": "perico",
+ "alto_cuerpo_px": 814,
+ "altura_serie": 282,
+ "boca": [
+  0.5,
+  -572.0
+ ],
+ "ojos": [
+  2.5,
+  -665.5
+ ],
+ "habla": [
+  "closed",
+  "mid",
+  "open",
+  "round"
+ ],
+ "parpadea": false,
+ "fotos": {
+  "base": {
+   "w": 545,
+   "h": 821,
+   "ax": 242.0,
+   "ay": 817.0
+  },
+  "base-boca-closed": {
+   "w": 545,
+   "h": 821,
+   "ax": 242.0,
+   "ay": 817.0
+  },
+  "base-boca-mid": {
+   "w": 545,
+   "h": 821,
+   "ax": 242.0,
+   "ay": 817.0
+  },
+  "base-boca-open": {
+   "w": 545,
+   "h": 821,
+   "ax": 242.0,
+   "ay": 817.0
+  },
+  "base-boca-round": {
+   "w": 545,
+   "h": 821,
+   "ax": 242.0,
+   "ay": 817.0
+  },
+  "fumando-aguanta": {
+   "w": 559,
+   "h": 821,
+   "ax": 251.0,
+   "ay": 818.0
+  },
+  "fumando-calada": {
+   "w": 520,
+   "h": 821,
+   "ax": 242.0,
+   "ay": 818.0
+  },
+  "hablando": {
+   "w": 548,
+   "h": 821,
+   "ax": 241.0,
+   "ay": 817.0
+  },
+  "fumando-mechero": {
+   "w": 501,
+   "h": 821,
+   "ax": 241.0,
+   "ay": 817.0
+  },
+  "sorprendido": {
+   "w": 645,
+   "h": 821,
+   "ax": 338.0,
+   "ay": 817.0
+  },
+  "fumando-suelta": {
+   "w": 579,
+   "h": 826,
+   "ax": 233.0,
+   "ay": 819.0
+  },
+  "fumando-tos": {
+   "w": 520,
+   "h": 826,
+   "ax": 252.0,
+   "ay": 819.0
+  }
+ }
+}

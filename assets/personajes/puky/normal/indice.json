@@ -1,0 +1,47 @@
+{
+ "nombre": "puky",
+ "alto_cuerpo_px": 773,
+ "altura_serie": 243,
+ "boca": [
+  9.5,
+  -589.5
+ ],
+ "ojos": [
+  5.0,
+  -678.0
+ ],
+ "habla": [],
+ "parpadea": true,
+ "fotos": {
+  "base": {
+   "w": 510,
+   "h": 776,
+   "ax": 208.0,
+   "ay": 774.0
+  },
+  "base-parpadeo": {
+   "w": 510,
+   "h": 776,
+   "ax": 208.0,
+   "ay": 774.0
+  },
+  "fumando-aguanta": {
+   "w": 486,
+   "h": 777,
+   "ax": 209.0,
+   "ay": 776.0
+  },
+  "fumando-calada": {
+   "w": 416,
+   "h": 776,
+   "ax": 208.0,
+   "ay": 774.0
+  },
+  "fumando-mechero": {
+   "w": 353,
+   "h": 777,
+   "ax": 184.0,
+   "ay": 775.0
+  }
+ }
+}
