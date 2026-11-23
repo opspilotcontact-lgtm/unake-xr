@@ -78,6 +78,10 @@ J.obj = () => ({ puerta, lasslow, blancaso, ui, humo, xr, unake, renderer, fisic
 J.jugarMinijuego = id => jugarMinijuego(id);
 J.jugarRecreativa = c => jugarRecreativa(c);
 J.recreativa = () => recreativa;
+J.abrirBarrio = () => abrirBarrio();
+Object.defineProperty(J, 'barrio', { get: () => B });
+J.entrarSala = id => entrarSala(id);
+J.salirSala = m => salirSala(m);
 J.abrirMenu = () => abrirMenu();
 
 // líneas con baraja sin repetir (criterio §4)
@@ -560,8 +564,9 @@ async function abrirMenu() {
   const f = xr.adelante.clone().setY(0).normalize();
   const c = xr.cabeza.clone().addScaledVector(f, 0.42); c.y = xr.cabeza.y - 0.22;
   sonido('pop', { volumen: 0.4 });
-  ui.tarjetasEn([...disponibles.map(m => m.texto), 'Recreativa (2D)', 'Seguir'], c, f.clone().negate(), (texto) => {
+  ui.tarjetasEn([...disponibles.map(m => m.texto), 'Recreativa (2D)', 'El barrio', 'Seguir'], c, f.clone().negate(), (texto) => {
     J.menu = false;
+    if (texto === 'El barrio') { abrirBarrio(); return; }
     if (texto === 'Recreativa (2D)') { recreativa.elegir(clave => { if (clave) jugarRecreativa(clave); }); return; }
     const m = disponibles.find(x => x.texto === texto);
     if (m) jugarMinijuego(m.id);
@@ -645,6 +650,121 @@ function mirarMenu() {
   }
 }
 
+// ---------- el barrio: maqueta en tu mesa → tocar una sala → estás dentro (js/barrio/) ----------
+// Se abre desde la muñeca. Mientras paseas, Lasslow y Blancaso te esperan donde estaban (en casa o en Unaké).
+const B = { maqueta: null, sala: null, salaId: null, gente: [], cache: new Map(), ocupado: false };
+let barrioMods = null;
+async function modsBarrio() {
+  if (!barrioMods) barrioMods = Promise.all([import('./barrio/maqueta.js'), import('./barrio/proyeccion.js'), import('./barrio/salas.js')])
+    .then(([m, p, s]) => ({ Maqueta: m.Maqueta, construirSala: p.construirSala, ...s }));
+  return barrioMods;
+}
+function guardarManos() {
+  if (J.porro) { J.porroGuardado = J.porro; J.porro.grupo.visible = false; J.porro.mano = null; J.porro = null; }
+  if (J.liar) J.liar.grupo.visible = false;
+  if (J.mechero) J.mechero.grupo.visible = false;
+}
+async function abrirBarrio() {
+  const M = await modsBarrio();
+  guardarManos();
+  B.faseAntes = J.fase; fase('barrio');
+  J.minijuego = { id: 'barrio', inst: { actualizar() { } } };
+  if (!B.maqueta) { B.maqueta = await M.Maqueta.crear({ mundo: J.mundo, alEntrar: id => entrarSala(id) }); escena.add(B.maqueta.grupo); }
+  else await B.maqueta.cambiarMundo(J.mundo);
+  ponerMaqueta();
+  ui.cartela('El barrio. Toca una sala para entrar.', 3);
+}
+function ponerMaqueta() {
+  const m = xr.mesaCerca();
+  let punto;
+  if (m) punto = m.punto.clone().setY(m.punto.y + 0.012);
+  else { const f = xr.adelante.clone().setY(0).normalize(); punto = xr.cabeza.clone().addScaledVector(f, 0.6); punto.y = Math.max(0.6, xr.cabeza.y - 0.6); }
+  B.maqueta.colocar(punto, xr.cabeza); B.maqueta.grupo.visible = true;
+  const f = xr.adelante.clone().setY(0).normalize(), lado = new THREE.Vector3(-f.z, 0, f.x);
+  const c = xr.cabeza.clone().addScaledVector(f, 0.45).addScaledVector(lado, 0.35); c.y = xr.cabeza.y - 0.3;
+  ui.tarjetasEn([J.mundo === 'humo' ? 'Volver a Unaké' : 'Volver a casa'], c, f.clone().negate(), () => cerrarBarrio());
+}
+async function salaMontada(id) {
+  const M = await modsBarrio(), k = id + '/' + J.mundo;
+  if (!B.cache.has(k)) {
+    B.cache.set(k, M.construirSala(M.mundoDe(id, J.mundo)));
+    // como mucho 3 salas en memoria (el agente avisó: sin límite se acumulan las texturas)
+    while (B.cache.size > 3) {
+      const [viejo, prom] = B.cache.entries().next().value; B.cache.delete(viejo);
+      prom.then(sl => { if (sl !== B.sala) sl.grupo.traverse(o => { o.geometry?.dispose(); }); }).catch(() => { });
+    }
+  }
+  return B.cache.get(k);
+}
+async function entrarSala(id) {
+  if (B.ocupado) return; B.ocupado = true;
+  try {
+    const M = await modsBarrio();
+    ui.quitarTarjetas(); sonido('whoosh', { volumen: 0.6 });
+    const nueva = await salaMontada(id);
+    const def = M.mundoDe(id, J.mundo), gente = [];
+    for (const [quien, casa] of Object.entries(M.CASAS)) {
+      if (casa !== id || (J.mundo !== 'humo' && M.SOLO_HUMO.includes(quien)) || !def.sitios?.[quien]) continue;
+      try { const r = await Recortable.crear(quien, J.mundo); r.userData = { local: nueva.sueloDe(def.sitios[quien][0], def.sitios[quien][1]) }; gente.push(r); } catch { /* sin dibujo */ }
+    }
+    await new Promise(ok => humo.llenar(xr.cabeza.clone(), () => {
+      B.maqueta.grupo.visible = false;
+      if (B.sala) escena.remove(B.sala.grupo);
+      for (const r of B.gente) escena.remove(r.grupo);
+      unake.grupo.visible = false; puerta.grupo.visible = false; casaFalsa.visible = false;
+      lasslow.grupo.visible = false; blancaso.grupo.visible = false; recreativa.maquina.visible = false;
+      if (J.cosas) for (const l of Object.values(J.cosas)) for (const k of l) k.obj.visible = false;
+      B.sala = nueva; B.salaId = id; B.gente = gente;
+      const f = xr.adelante.clone().setY(0).normalize();
+      nueva.grupo.position.copy(xr.cabeza).setY(0);
+      nueva.grupo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), f);
+      escena.add(nueva.grupo); nueva.actualizarProyector();
+      for (const r of gente) { r.grupo.position.copy(nueva.grupo.localToWorld(r.userData.local.clone())); escena.add(r.grupo); }
+      escena.background = new THREE.Color('#1a1426');
+      fisica.planos = []; xr.permitirMovimiento(true);
+      ok();
+    }));
+    setTimeout(() => {
+      const f = xr.adelante.clone().setY(0).normalize(), lado = new THREE.Vector3(-f.z, 0, f.x);
+      const c = xr.cabeza.clone().addScaledVector(f, 0.5).addScaledVector(lado, -0.15); c.y = xr.cabeza.y - 0.3;
+      ui.tarjetasEn(['A la maqueta', J.mundo === 'humo' ? 'A Unaké' : 'A casa'], c, f.clone().negate(), t => (t === 'A la maqueta' ? salirSala(true) : salirSala(false)));
+    }, 900);
+  } catch (e) { console.error('[barrio] entrar', id, e); }
+  B.ocupado = false;
+}
+function salirSala(aMaqueta) {
+  if (B.ocupado) return; B.ocupado = true;
+  ui.quitarTarjetas(); sonido('whoosh', { volumen: 0.6 });
+  humo.llenar(xr.cabeza.clone(), () => {
+    if (B.sala) escena.remove(B.sala.grupo);
+    for (const r of B.gente) escena.remove(r.grupo);
+    B.sala = null; B.gente = [];
+    restaurarMundo();
+    if (aMaqueta) ponerMaqueta(); else cerrarBarrio(true);
+    B.ocupado = false;
+  });
+}
+// deja el mundo como estaba antes del paseo (de día vuelves a tu sitio real)
+function restaurarMundo() {
+  lasslow.grupo.visible = true; blancaso.grupo.visible = true;
+  if (J.mundo === 'humo') {
+    unake.grupo.visible = true; recreativa.maquina.visible = true; escena.background = new THREE.Color('#231a33');
+    fisica.planos = unake.planosFisica();
+  } else {
+    xr.permitirMovimiento(false);
+    puerta.grupo.visible = true; casaFalsa.visible = J.modo !== 'ar';
+    escena.background = J.modo === 'ar' ? null : new THREE.Color('#e6dfd2'); fisica.planos = [];
+  }
+  if (J.cosas) for (const k of J.cosas[J.mundo]) k.obj.visible = true;
+}
+function cerrarBarrio(yaRestaurado = false) {
+  if (B.sala) { escena.remove(B.sala.grupo); for (const r of B.gente) escena.remove(r.grupo); B.sala = null; B.gente = []; }
+  if (!yaRestaurado) restaurarMundo();
+  if (B.maqueta) B.maqueta.grupo.visible = false;
+  ui.quitarTarjetas();
+  cerrarMinijuego(B.faseAntes);
+}
+
 // ---------- los dos mundos ----------
 function cambiarMundo(aHumo) {
   if (J.transicion) return;
@@ -707,6 +827,7 @@ function director(dt) {
   if (J.mundo === 'normal' && xr.sesion && !J.minijuego) { J.planosEn = (J.planosEn ?? 0) - dt; if (J.planosEn <= 0) { J.planosEn = 1; fisica.planosDesdeXR(xr.planos); } }
   agarre.actualizar(dt, ms); fisica.actualizar(dt); golpesAColegas(); pasoBolas(dt);
   recreativa?.actualizar(dt, ms);
+  if (J.fase === 'barrio') { if (B.maqueta?.grupo.visible) B.maqueta.actualizar(dt, ms, cab); for (const r of B.gente) r.actualizar(dt, cab); }
   if (J.minijuego) { try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
   else if (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender') mirarMenu();
   viaje?.actualizar(dt, { puede: J.mundo === 'humo' && !J.transicion && !J.calada && !J.enManos && !J.vuela, colocon: J.colocon });
