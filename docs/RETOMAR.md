@@ -29,67 +29,54 @@
 11. **24/11: TODO hilado con la historia y la economía TAL CUAL el 2D**, nada de piezas sueltas.
     - **Decisión técnica**: el motor único de historia y economía es el propio código del 2D, corriendo en el iframe del puente (`p.win`: `ESTADO`, `apuntar`, `PAGO_ESTRELLAS`…). El XR solo presenta y avisa.
 
-## 3. Qué hay publicado (main, `eda6e7f`) · probado en PC/emulador, en la Quest solo F0
+## 3. Qué hay publicado (main, cierre del 24/11 madrugada · `a5415b6`) · probado en PC/emulador; en la Quest solo F0
 
 | Pieza | Archivos | Prueba |
 |---|---|---|
-| Flujo F0: puerta, contraseña, empujar, liar, mechero, caladas, pase, día ↔ humo | `js/app.js`, `puerta.js`, `porro.js`, `recortable.js`, `decorado.js`, `humo.js`, `ui.js`, `xr.js` | `bot_f0.mjs`, `emulador_f0.mjs` |
-| Fumar 14 caladas, micro (chorro + aros por soplido), formas sin micro, pase en ronda | `app.js` | `bot_f0.mjs` |
-| Física propia (coger y lanzar contra tu casa real o el bar), golpes a colegas | `fisica.js` | `momentos.mjs` |
-| Joystick en el humo (andar, giro 30°, viñeta), recolocación de día | `xr.js` | `joystick.mjs` |
-| Momentos de colocón (neón, onda, chuches, figuras, miradas, estrellas) | `viaje.js` | `momentos.mjs` |
-| Menú de la muñeca (tocar el panel del colocón o B/Y) | `app.js` | `menu_minijuego.mjs` |
-| Pipas y Tiro al pato nativos | `js/minijuegos/` | `minijuego.mjs pipas/tiropato` |
-| Recreativa: 22 minijuegos del 2D por el puente | `recreativa.js`, `js/puente/` | `recreativa.mjs` |
-| Barrio: 10 salas día/humo + maqueta, dentro del juego | `js/barrio/`, `app.js` | `barrio.mjs`, `barrio_juego.mjs` |
+| Flujo: puerta, contraseña, empujar, liar, mechero, caladas, pase, día ↔ humo | `js/app.js`, `puerta.js`, `porro.js`, `recortable.js`, `decorado.js`, `humo.js`, `ui.js`, `xr.js` | `bot_f0.mjs` (pasa también las escenas de historia con pellizco) |
+| **Historia: 17 capítulos + economía del 2D** (motor único = código del 2D en el iframe del puente, partida `unake-xr-partida`). Escenas en VR, objetivos en la muñeca, tarjeta ★ en el menú | `js/historia/` (datos, motor, escenas, muneca), `docs/historia.md` | `historia.mjs` (14 min), `bot_f0.mjs` |
+| Fumar 14 caladas, micro (chorro + aros), formas sin micro, pase en ronda | `app.js` | `bot_f0.mjs` |
+| Física, golpes a colegas, joystick en el humo, momentos de colocón | `fisica.js`, `xr.js`, `viaje.js` | `momentos.mjs`, `joystick.mjs` |
+| Menú de la muñeca, en dos filas: ★ objetivo, 4 nativos, Recreativa (2D), El barrio | `app.js` | `menu_minijuego.mjs <id>` |
+| **6 minijuegos nativos**: Pipas, Tiro al pato, La caja de Blancaso (Cuentas), La Pompa en su punto (en tu techo real) + Liar y Fumar | `js/minijuegos/` | `minijuego.mjs <id>` |
+| Recreativa: 22 minijuegos del 2D por el puente (`panel:false`: cobra el motor) | `recreativa.js`, `js/puente/` | `recreativa.mjs` |
+| Barrio: 10 salas día/humo + maqueta, dentro del juego (máx. 3 salas en memoria) | `js/barrio/`, `app.js` | `barrio.mjs`, `barrio_juego.mjs` |
 
-## 4. A medias cuando se escribió esto (copia en la rama `wip-f1`, NO en main)
+## 4. Lo que quedó a medias
 
-Tres agentes estaban trabajando. Su trabajo está en el disco y copiado en `origin/wip-f1` (`24655b8`).
+Nada a medias: los 4 agentes de la noche terminaron, revisé su trabajo y está todo en main. La rama `wip-f1` se borró.
 
-| Encargo | Archivos | Puerto |
-|---|---|---|
-| **Motor de historia + economía**: 17 capítulos, objetivos que se cumplen por cualquier camino, escenas en viñetas/bocadillos, muñeca; economía del 2D vía el iframe del puente | `js/historia/` (datos, motor, escenas, muneca, pagina), `historia.html`, cambio en `js/puente/puente.js`, `docs/historia.md`, `herramientas/pruebas/historia.mjs` | 18775 |
-| **Cuentas** nativo (mesa, Blancaso) | `js/minijuegos/cuentas.js` + `bots/cuentas.js` | 18776 |
-| **En su punto** nativo (la Pompa en tu techo real) | `js/minijuegos/ensupunto.js` + `bots/ensupunto.js` | 18777 |
+**Avisos de los informes** (para revisar al probar en la Quest):
+- **Historia**:
+  - capítulos jugables enteros: 1-10, 12·II, 13, 14 y 16, casi todos con minijuegos de la recreativa;
+  - con «Seguir la historia» (sin minijuego aún): 11 La furgo (Furgo + Control), 12·I (Casetas) y 15 (Amarillo);
+  - el encargo de la tienda del cap. 1 se cumple ganando cualquier minijuego;
+  - las situaciones se saltan el paso de recoger por el barrio.
+- **Cuentas**: se pierde con 5 fallos (como en el 2D); Blancaso se derrite a los 3.
+- **En su punto**: la Pompa queda a 1 m por encima de tu cabeza como mucho, para alcanzar la válvula.
+- **Recreativa y motor**: comparten UN puente (carga ~1 s y ~4 MB al arrancar: medir en la Quest).
 
-**Al volver, si los agentes ya no corren:**
-1. `git status`. Si faltan sus archivos en el disco: `git checkout origin/wip-f1 -- js/historia historia.html js/minijuegos/cuentas.js js/minijuegos/ensupunto.js herramientas/pruebas/bots/cuentas.js herramientas/pruebas/bots/ensupunto.js js/puente/puente.js`.
-2. Comprobar cada pieza con su prueba (`node herramientas/pruebas/minijuego.mjs cuentas 18765 240`, `… ensupunto …`, `historia.mjs` si existe). Si algo está a medias, se relanza un agente con el mismo encargo («continúa desde lo que hay en el disco»). Los encargos completos están en la sección 7.
-3. `js/puente/puente.js` cambiado: volver a pasar `node herramientas/pruebas/recreativa.mjs` (y `prueba_puente.mjs`) antes de publicar.
+## 5. Lo siguiente, en este orden
 
-## 5. Lo siguiente, en este orden (F1: el juego entero hilado)
+1. **El fundador prueba en la Quest** y se arregla lo que salga: textos de las escenas, muñeca, pellizcos, rendimiento del puente.
+2. **Materiales para liar** (decisión pendiente del fundador). Propuesta del agente: kit al empezar (papel ×3 + mechero) y exigirlo desde el cap. 2, con `motor.gastarLiar()` y `motor.faltaParaLiar()` en `sacarBandeja()`. Hoy se lía gratis para no bloquear el bucle básico.
+3. **Tienda en la sala `tienda`** del barrio: comprar tocando productos con `motor.comprar(id)` (precios `TIENDA` del 2D). Comer = llevárselo a la boca (`r.efecto.colocon` → `J.colocon`).
+4. **Hucha y monchis visibles**: aportar a Blancaso, monchis en la muñeca. El motor ya los lleva.
+5. **Desbloqueos por la historia**: cada minijuego, en su sala del barrio cuando la historia lo abre.
+6. **Minijuegos que faltan para la historia**: Furgo + Control (cap. 11), Casetas (cap. 12·I) y Amarillo (cap. 15), primero en nativo.
+7. **Tandas de 3 agentes**:
+   - el resto a nativo: Barra, Tarta, Periquito, Inspección, Farol, jefes, DJ, Cámaras…;
+   - sistemas: negocio, apuestas, encargos, situaciones con recogida en el barrio, armario, logros, noches;
+   - cine: intro, final, círculo, cuenta.
 
-1. **Enganchar el motor de historia** en `app.js`, siguiendo `docs/historia.md` (lista de llamadas):
-   - arranque de partida = prólogo del cap. 1 (la puerta);
-   - capítulos en orden con escenas y objetivos en la muñeca;
-   - `motor.avisar(...)` en caladas, liar, pase, mundo, salas, minijuegos (nativos y recreativa).
-2. **Economía real**:
-   - cobrar con la fórmula del 2D (15/35/60/100 por estrellas, ×1,5 en humo, repetición ×0,75/0,5/0,3, +20 por estrella nueva);
-   - hucha: aportar a Blancaso;
-   - monchis en la muñeca.
-3. **Materiales para liar**:
-   - papel y mechero en la tienda;
-   - bolsita en la barra;
-   - boquilla escondida en una sala (la pista de Perico);
-   - sin ellos no se lía (como el 2D).
-4. **Tienda del barrio** (sala `tienda`): comprar tocando los productos; precios de `TIENDA` en `base/js/escenas/barrio.js`.
-5. **Hambre y vida** (`ESTADO.hambre`/`vida` del 2D): comer = llevarse la comida a la boca; con vida 0, amarillo y a tu cuarto.
-6. **Desbloqueos por la historia**: cada minijuego aparece en su sala del barrio cuando la historia lo abre, y se queda.
-7. **Publicar** y que el fundador pruebe en la Quest.
-8. **Después, por tandas de 3 agentes**: el resto de minijuegos a nativo y luego los sistemas.
-   - Minijuegos: Barra, Tarta, Periquito, Inspección, Farol, Furgo+Control, Casetas, jefes (Blancazo, Palo, Amarillo), DJ, Cámaras…
-   - Sistemas: negocio (tycoon), apuestas, encargos, situaciones, armario, logros.
-   - Cine: intro, final, círculo, cuenta, poscréditos.
-
-## 6. Cuenta de lo que queda (24/11)
+## 6. Cuenta de lo que queda (24/11, cierre)
 
 | | Hecho | Falta |
 |---|---|---|
-| Minijuegos (31 en el 2D) | 4 nativos (Pipas, Tiro al pato, Liar y Fumar F0) + 2 en curso | ~23 a nativo. Hoy ~18-20 se juegan por la recreativa; Furgo+Control, Casetas y Amarillo aún no |
-| Historia (17 caps + intro/final/círculo/cuenta/poscréditos) | motor en curso | enganche y cine |
-| Sistemas | barrio, fumar, física, joystick, momentos | economía, tienda, necesidades, negocio, apuestas, encargos, situaciones, armario, logros |
-| **Total aprox.** | **~25 %** | ~30 encargos, ~8-10 M tokens, ~10-12 tandas de 3 agentes |
+| Minijuegos (31) | 6 nativos + ~18 por la recreativa | ~21 a nativo; Furgo+Control, Casetas y Amarillo aún sin jugar en XR |
+| Historia | 17 capítulos enganchados (14 enteros, 3 con «Seguir») | pulir escenas en la Quest, cine |
+| Economía y sistemas | motor del 2D con pagos, hucha, tienda, hambre, vida y amarillo por API; barrio, fumar, física, joystick, momentos | tienda, materiales y hucha EN VR; negocio, apuestas, encargos, situaciones, armario, logros |
+| **Total aprox.** | **~35-40 %** | ~25 encargos, ~6-8 M tokens, ~8-10 tandas |
 
 ## 7. Cómo encargar a un agente (plantilla probada)
 
@@ -132,5 +119,5 @@ Pendientes técnicos que pidieron los agentes:
 ## 10. Prompt para pegar al volver
 
 ```
-Retoma UNAKÉ XR: lee Documents/GitHub/unake-xr/docs/RETOMAR.md y sigue su sección 4 (comprobar lo que quedó a medias en wip-f1) y luego la 5 en orden. Usa subagentes medidos como en la sección 7. Publica en main solo lo que pase bot_f0.mjs sin errores.
+Retoma UNAKÉ XR: lee Documents/GitHub/unake-xr/docs/RETOMAR.md y sigue su sección 5 en orden (lo primero, lo que haya salido al probar en la Quest). Usa subagentes medidos como en la sección 7. Publica en main solo lo que pase bot_f0.mjs sin errores.
 ```
