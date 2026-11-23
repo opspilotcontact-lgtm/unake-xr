@@ -76,16 +76,39 @@ MESA = juguete sobre tu mesa · SALA = lo del humo entra en tu habitación real 
 | F4 | Ola de mesa y cine (portada, final, poscréditos, círculo) | Repaso del criterio §7 |
 | F5 | Pulido, rendimiento y publicación (repo público `unake-xr` en Pages, robots Disallow) | — |
 
-## 5. Estado de F0 (23/11/2026, noche)
+## 5. Estado (23/11/2026, madrugada) · F0 cerrada, F1 en marcha
 
-HECHO y probado en el PC:
-- `herramientas/pruebas/bot_f0.mjs`: un bot con manos simuladas juega todo el flujo **sin errores**: contraseña con el bucle de «¿Una qué?» → empujar → liar → mechero (falla una vez) → caladas → pasarlo a Lasslow → humo → calada → pasarlo a Blancaso → vuelta al día.
-- `herramientas/pruebas/emulador_f0.mjs`: emulador de Meta (IWER + entorno sintético). Entra en realidad mixta de verdad, detecta planos, la puerta se pega a una pared, lee los mandos. Sin errores.
-- `herramientas/pruebas/fotos_fases.mjs`: fotos por fase.
+Publicado en https://opspilotcontact-lgtm.github.io/unake-xr/ (repo público, rama main; cada push actualiza Pages).
 
-Falta en F0:
-- **Probarlo en la Quest** (nada de esto se ha visto aún en las gafas). Pendiente: rendimiento, manos reales (umbrales de pellizco y puño), tamaño de textos y bocadillos, y si la sala proyectada convence de pie.
-- Enganchar el puente (prueba con un minijuego en una máquina del bar), cuando cierre su agente.
+**Hecho y probado en el PC** (bots sin errores; en la Quest solo F0):
+- **F0**: puerta en tu pared, contraseña, liar y fumar con las manos, día ↔ humo (`bot_f0.mjs`).
+- **Fumar**:
+  - 14 caladas;
+  - soplar al micro saca el humo con su fuerza, y cada soplido corto es un aro;
+  - sin micro, formas variadas: chorro, aros, por la nariz y bola que revienta.
+- **Pase en ronda**: el colega se inclina y lo pide, a veces lo pasa al otro y te lo tiende.
+- **Física propia** (`js/fisica.js` + `Agarre`): coger y lanzar contra tus mesas y paredes reales o las del bar. Los colegas reaccionan si les das.
+- **Joystick** en el humo: andar y giro de 30°, con viñeta. De día vuelves a tu sitio real (`joystick.mjs`).
+- **Momentos de colocón** (`js/viaje.js`): neón, onda, lluvia de chuches, figuras de humo, miradas y estrellas (`momentos.mjs`).
+- **Menú en la muñeca** (tocar el panel del colocón o B/Y):
+  - **Pipas** y **Tiro al pato** nativos (`js/minijuegos/`, contrato en `docs/minijuegos.md`);
+  - **Recreativa** con 22 minijuegos del 2D por el puente (`js/recreativa.js`).
+- **Barrio**: 10 salas en día y humo proyectadas (`js/barrio/`) y maqueta sobre la mesa. Por ahora es una página aparte, `barrio.html`.
+
+**Siguiente (F1)**:
+- motor de historia (17 capítulos);
+- barrio dentro del juego;
+- Cuentas y En su punto nativos;
+- necesidades y tienda.
+
+**Pendientes técnicos** (de los informes de los agentes):
+- caché de salas sin límite (82 texturas);
+- unificar `decorado.js` con `barrio/proyeccion.js`;
+- arranque común (marco/pagina/app);
+- `ALTOS` duplicado;
+- `fisica`: viento, cilindros y oyentes múltiples de agarre;
+- exportar `conTinta`;
+- Tiro al pato pesa unos 90-130 draw calls.
 
 ## 6. Cómo probar
 
