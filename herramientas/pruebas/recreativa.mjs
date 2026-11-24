@@ -1,5 +1,5 @@
 // La recreativa dentro del juego: en el humo, jugar Pipas y Cuentas del 2D por el puente con teclas sintéticas
-// (las mismas que mandaría el mando) y cobrar el resultado. Uso: node herramientas/pruebas/recreativa.mjs
+// (las mismas que mandaría el mando) y cobrar el resultado. Uso: node herramientas/pruebas/recreativa.mjs [puerto]
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { chromium } = require('C:/Users/NIBI/Documents/GitHub/presupuesya-maqueta/node_modules/playwright-core');
@@ -8,7 +8,7 @@ const pag = await nav.newPage({ viewport: { width: 1280, height: 720 } });
 const errores = [];
 pag.on('pageerror', e => errores.push(e.message));
 pag.on('console', m => { if (m.type() === 'error' && !m.text().includes('404')) errores.push(m.text()); });
-await pag.goto(`http://127.0.0.1:18765/?v=${Date.now()}`);
+await pag.goto(`http://127.0.0.1:${process.argv[2] || 18765}/?v=${Date.now()}`);
 await pag.waitForFunction(() => window.__unake?.prueba);
 await pag.evaluate(() => window.__unake.prueba.mirar(0, 1.5, 0, 0, -0.05));
 await pag.evaluate(() => window.__unake.prueba.ir('humo'));
