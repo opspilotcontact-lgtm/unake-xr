@@ -12,6 +12,7 @@
 //   const m = new MunecaHistoria({ motor, alPulsar: obj => … });   // alPulsar: el botón del objetivo dorado
 //   en el bucle: m.actualizar(dt, xr.manos.izquierda, xr.manos.derecha);
 import * as THREE from 'three';
+import { mundoQuiere } from './guia.js';
 
 const ORO = '#ffd23f', TINTA = '#140c1c', APAGADO = 'rgba(214,200,232,.72)';
 const W = 640, H_BANDA = 176, H_RESTO = 168;
@@ -45,13 +46,15 @@ export class MunecaHistoria {
     this.mBanda.position.y = (H_RESTO * M_PX) / 2 + 0.002;
     this.mResto.position.y = -(H_BANDA * M_PX) / 2;
     this.grupo.add(this.mBanda, this.mResto);
-    this.plegada = false; this.abiertaHasta = 0; this.t = 0; this.espera = 0; this.firma = '';
+    this.plegada = false; this.abiertaHasta = 0; this.t = 0; this.espera = 0; this.firma = ''; this.pulso = 0;
     motor.on('alCambiar', () => this.pintar());
     motor.on('alCumplirObjetivo', () => { this.desplegar(5); });
     motor.on('alEmpezarCapitulo', () => { this.desplegar(6); });
     this.pintar();
   }
 
+  // «Mírame»: la banda late y brilla unos segundos y la mano izquierda vibra (al cambiar el objetivo o con una pista).
+  llamar(seg = 2.6) { this.pulso = seg; this.vibrarPendiente = true; if (this.plegada) this.desplegar(5); }
   plegar() { this.plegada = true; this.abiertaHasta = 0; this._visibilidad(); }
   desplegar(seg = 0) { this.plegada = false; this.abiertaHasta = seg ? this.t + seg : 0; this._visibilidad(); this.pintar(); }
   _visibilidad() { this.mResto.visible = !this.plegada; }
@@ -63,7 +66,7 @@ export class MunecaHistoria {
     const firma = h ? h.id + '|' + h.progreso + '|' + (h.accion && h.accion.texto) : 'nada';
     const cambia = firma !== this.firma && this.firma && h;
     this.firma = firma;
-    if (cambia) { this.plegada = false; this.abiertaHasta = this.t + 5; this._visibilidad(); }
+    if (cambia) { this.plegada = false; this.abiertaHasta = this.t + 5; this._visibilidad(); this.pulso = 2.6; this.vibrarPendiente = true; }
     // ---- banda dorada ----
     {
       const { ctx, c, t } = this.banda;
@@ -84,7 +87,8 @@ export class MunecaHistoria {
         const a = h.accion;
         if (a && a.texto) {
           ctx.font = '28px Caprasimo, serif';
-          const txt = 'toca: ' + a.texto + (h.como === 'pendiente' ? ' · aún no está en el XR' : '');
+          const quiere = mundoQuiere(h), otro = quiere && quiere !== (this.motor.E.mundoXR || 'normal');
+          const txt = 'toca: ' + (otro ? (quiere === 'humo' ? 'Ir al humo' : 'Volver a casa') : a.texto) +(h.como === 'pendiente' ? ' · aún no está en el XR' : '');
           const w = Math.min(W - 60, ctx.measureText(txt).width + 34);
           ctx.fillStyle = a.puede === false ? '#5a4a6e' : ORO;
           ctx.beginPath(); ctx.roundRect(66, 118, w, 44, 14); ctx.fill();
@@ -118,6 +122,14 @@ export class MunecaHistoria {
     this.t += dt; this.espera = Math.max(0, this.espera - dt);
     if (this.abiertaHasta && this.t > this.abiertaHasta) { this.abiertaHasta = 0; this.plegada = true; this._visibilidad(); }
     if (manoIzq && manoIzq.grupo && this.grupo.parent !== manoIzq.grupo) manoIzq.grupo.add(this.grupo);
+    // el latido de «mírame»
+    if (this.pulso > 0) {
+      this.pulso = Math.max(0, this.pulso - dt);
+      const k = this.pulso > 0 ? 1 + 0.12 * Math.abs(Math.sin(this.t * 7)) : 1;
+      this.mBanda.scale.setScalar(k);
+      this.mBanda.material.color.setScalar(this.pulso > 0 ? 1 + 0.6 * Math.abs(Math.sin(this.t * 7)) : 1);
+      if (this.vibrarPendiente && manoIzq && manoIzq.activa) { this.vibrarPendiente = false; manoIzq.vibrar?.(0.5, 70); setTimeout(() => manoIzq.vibrar?.(0.35, 60), 220); }
+    }
     if (!manoIzq || !manoIzq.activa || !manoDer || !manoDer.activa || this.espera > 0) return;
     const toca = malla => { if (!malla.visible) return false; const l = malla.worldToLocal(_v.copy(manoDer.punta)); const g = malla.geometry.parameters; return Math.abs(l.x) < g.width / 2 && Math.abs(l.y) < g.height / 2 && Math.abs(l.z) < 0.02; };
     if (toca(this.mBanda)) {

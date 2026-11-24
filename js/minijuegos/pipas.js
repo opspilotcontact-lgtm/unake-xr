@@ -19,14 +19,18 @@ function baraja(lista) {
   return () => { if (!mazo.length) mazo = lista.slice().sort(() => Math.random() - 0.5); return mazo.pop(); };
 }
 
+import { Jugo } from './jugo.js';
+
 export default {
   clave: 'Pipas', titulo: 'La apuesta de pipas', escala: 'sala', umbrales: [500, 1000, 1800],
+  ayudas: { gatillo: 'Coger la pipa (suelta al lanzar)', lateral: 'Coger y lanzar', mano: { pellizco: 'Coger la pipa y lanzar', puno: 'Coger y lanzar' } },
 
   async crear(ctx) {
     const { THREE, fisica, agarre, humo, ui, sonido, xr } = ctx;
     const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
     const grupo = new THREE.Group(); grupo.name = 'minijuego-pipas';
     const nivel = ctx.nivel ?? 1;
+    const fx = new Jugo(ctx, grupo);
 
     // ---------- estado de la partida (todo se reinicia aquí) ----------
     const E = { fase: 'intro', tirada: 0, puntos: 0, racha: 0, aciertos: 0, resultados: [] };
@@ -267,7 +271,7 @@ export default {
       alSoltarAntes?.(c, mano);
       if (!pipa || c !== pipa.c || E.fase !== 'apunta') return;
       const v = c.vel.length();
-      if (v < 0.9) {
+      if (v < 0.75) { // con manos el lanzamiento sale más flojo: más tolerancia
         // se te ha caído: no cuenta, sale otra
         aCascara(pipa); pipa = null;
         luego(0.35, () => { if (E.fase === 'apunta' && !pipa) nuevaPipa(); });
@@ -315,7 +319,14 @@ export default {
       E.fase = 'apunta'; esperando = 0;
       perico.pose('pipas');
       nuevaPipa();
-      if (E.tirada === 1) ui.instruccion('Coge una pipa y lánzala a la papelera');
+      if (E.tirada === 1) {
+        ui.instruccion('Coge una pipa y lánzala a la papelera');
+        // la mano fantasma: pellizca la pipa del cucurucho, echa el brazo atrás y la suelta hacia la papelera
+        const p0 = cucurucho.position.clone().add(V(0, 0.03, 0));
+        const atras = xr.cabeza.clone().addScaledVector(der, 0.22).add(V(0, -0.15, 0.05));
+        const suelta = papelera.position.clone().lerp(xr.cabeza, 0.62); suelta.y = xr.cabeza.y - 0.05;
+        fx.demo([{ p: p0 }, { p: p0, pinza: true }, { p: atras, pinza: true }, { p: suelta, pinza: true }, { p: suelta }], { dur: 3, tramo: 0.5 });
+      }
     }
 
     function resolver(dentro, centrado = 1) {
@@ -338,6 +349,7 @@ export default {
           const a = i / 10 * Math.PI * 2;
           humo.soltar({ pos: boca, vel: V(Math.cos(a) * 0.35, 0.5 + Math.random() * 0.3, Math.sin(a) * 0.35), tam: 0.04, vida: 1.1, crece: 0.08, sube: 0.1, frena: 2, brillo: 0.8, alfa: 0.8 });
         }
+        fx.acierto(boca, { color: limpio ? '#ffe066' : '#7ee08a', sonido: null, fuerte: limpio || E.racha >= 3, n: 14 + E.racha * 4 });
         const txt = (clonc ? '¡De rebote! ' : limpio ? '¡Limpia! ' : '¡Dentro! ') + `+${pts}`;
         saltaTexto(txt, '#7ee08a', boca.clone().add(V(0, 0.35, 0)), 0.62);
         if (E.racha === 3 || E.racha === 5 || E.racha === 8) {
@@ -350,7 +362,7 @@ export default {
       } else {
         E.racha = 0;
         E.resultados.push({ dentro: false, pts: 0 });
-        if (pipa) { aCascara(pipa); pipa = null; }
+        if (pipa) { fx.fallo(pipa.m.position.clone(), { mano: lanzador }); aCascara(pipa); pipa = null; }
         sonido('pop', { volumen: 0.3 });
         luego(0.25, () => sonido('pin-pin', { en: perico.grupo, volumen: 0.55 }));
         perico.pose(Math.random() < 0.5 ? 'partiendose' : 'silbando');
@@ -446,6 +458,7 @@ export default {
       grupo,
       actualizar(dt) {
         reloj += dt;
+        fx.actualizar(dt);
         for (let i = tareas.length - 1; i >= 0; i--) if (tareas[i].t <= reloj) { const t = tareas.splice(i, 1)[0]; t.fn(); }
         perico.actualizar(dt, xr.cabeza);
         colocarCucurucho(dt);
@@ -486,8 +499,16 @@ export default {
         const lejos = c.obj.position.distanceTo(suelo) > 9;
         if (enSuelo > 0.45 || c.dormido || tVuelo > 5 || lejos) resolver(false);
       },
+      // salir a mitad: cuenta lo que llevas, sin ganar
+      abandonar() {
+        if (acabado) return;
+        acabado = true; E.fase = 'fin'; ui.instruccion(null);
+        perico.pose('alas-arriba'); perico.decir('¿Te rindes? Pin pin. Lo sabía.');
+        ctx.terminar({ puntos: E.puntos, gana: false, linea: `Lo dejas en la tirada ${E.tirada}. Perico se queda tus pipas.` });
+      },
       destruir() {
         acabado = true; tareas.length = 0;
+        fx.destruir();
         agarre.alCoger = alCogerAntes; agarre.alSoltar = alSoltarAntes;
         for (const m of [xr.manos.derecha, xr.manos.izquierda]) if (pipa && agarre.lleva(m) === pipa.c) agarre.soltar(m, false);
         if (pipa) fisica.quitar(pipa.c);

@@ -54,7 +54,9 @@ const ACCION = ['b1', 'b2', 'b3', 'b4'];
 const ARRIBA = ['encender', 'elegir', 'start', 'salir'];
 const CLAVE_MEJORES = 'unake-xr-recreativa';
 const ANG_PALANCA = 0.42;
-const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion();
+// pasos del 2D por segundo: 30 basta para estos juegos y la textura de 1280×720 se sube la mitad de veces (Quest 3S)
+export const FPS_PUENTE = 30;
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion(), _c = new THREE.Color();
 
 export class Recreativa {
   constructor({ escena, xr, ui, sonido, musica, mundo = 'humo' }) {
@@ -104,7 +106,7 @@ export class Recreativa {
   // ---------- el puente ----------
   async _puente() {
     if (this.p) return this.p;
-    if (!this.cargando) this.cargando = import('./puente/puente.js').then(m => m.crearPuente({ ancho: 1280, alto: 720, fpsMax: 45 }));
+    if (!this.cargando) this.cargando = import('./puente/puente.js').then(m => m.crearPuente({ ancho: 1280, alto: 720, fpsMax: FPS_PUENTE }));
     const p = await this.cargando;
     if (!this.p) { this.p = p; p.textura.colorSpace = THREE.SRGBColorSpace; }
     return this.p;
@@ -236,7 +238,7 @@ export class Recreativa {
   // ---------- bucle ----------
   actualizar(dt, manos) {
     this.reloj += dt; this.tModo += dt;
-    if (this.p) this.p.actualizar();
+    if (this.p) this._pasoPuente();
     const lista = Array.isArray(manos) ? manos : manos ? Object.values(manos) : Object.values(this.xr.manos || {});
     if (!this.maquina.visible) { this._soltarTodo(); return; }
     this.maquina.updateMatrixWorld();
@@ -258,13 +260,36 @@ export class Recreativa {
     if (this.modo !== 'jugando' && this.modo !== 'apagada' && this.reloj - this._dibujoEn > 1 / 20) this._pintarPantalla();
   }
 
+  // el 2D sigue corriendo siempre (su reloj), pero la textura de la pantalla solo se sube a la GPU si la ves
+  _pasoPuente() {
+    const p = this.p;
+    if (this.modo !== 'jugando' || this._seVe()) { p.actualizar(); return; }
+    // paso sin subir la textura (queda «sucia» y se sube en cuanto vuelvas a mirar). Si el puente cambiara y no
+    // tuviera _quizaPaso, no se toca nada: su propio reloj de respaldo sigue moviendo el 2D.
+    if (typeof p._quizaPaso !== 'function') return;
+    const ahora = performance.now(); p._ultimoExterno = ahora; p._quizaPaso(ahora);
+  }
+  _seVe() {
+    if (!this.maquina.visible) return false;
+    const c = this.pantalla.getWorldPosition(_v), cab = this.xr.cabeza;
+    const d = _w.copy(c).sub(cab); const dist = d.length();
+    if (dist < 1.2) return true;
+    return d.multiplyScalar(1 / dist).dot(this.xr.adelante) > 0.45; // ~63° desde el centro de la vista (el campo de la Quest 3S ~ ±50°)
+  }
+
   _sentado(dt) {
     const A = this._altura;
     if (this._distJugador() < 1.1) A.cabeza += (this.xr.cabeza.y - A.cabeza) * Math.min(1, dt / 2.5);
     if (A.cabeza < 1.30) A.objetivo = 0.74 - ALTO_PANEL; else if (A.cabeza > 1.42) A.objetivo = 0;
-    const c = this.m.cuerpo.position;
-    const d = A.objetivo - c.y;
-    if (Math.abs(d) > 1e-4) c.y += Math.sign(d) * Math.min(Math.abs(d), dt * 0.4);
+    // Bajar el mueble entero lo mete 25 cm bajo el suelo: en el bar lo tapa el suelo virtual, pero en tu casa
+    // (passthrough) se vería atravesando el suelo real. Allí se encoge desde el suelo (panel a la misma altura).
+    const enAR = this.xr.modo === 'ar' && this._mundo() !== 'humo';
+    const cu = this.m.cuerpo, objY = enAR ? 0 : A.objetivo, objS = enAR ? 1 + A.objetivo / ALTO_PANEL : 1;
+    const paso = dt * 0.4;
+    const d = objY - cu.position.y;
+    if (Math.abs(d) > 1e-4) cu.position.y += Math.sign(d) * Math.min(Math.abs(d), paso);
+    const ds = objS - cu.scale.y;
+    if (Math.abs(ds) > 1e-4) cu.scale.setScalar(cu.scale.y + Math.sign(ds) * Math.min(Math.abs(ds), paso / ALTO_PANEL));
   }
 
   // botones de los mandos de las gafas (solo si estás delante de la máquina encendida)
@@ -289,6 +314,7 @@ export class Recreativa {
 
   _botones(dt, lista, mandos) {
     const B = this.m.botones;
+    let movidos = false;
     for (const [k, b] of Object.entries(B)) {
       let hondo = 0, quien = null;
       for (const m of lista) {
@@ -304,10 +330,11 @@ export class Recreativa {
       }
       if (mandos.forzar[k]) { hondo = RECORRIDO; quien = mandos.quien[k]; }
       b.hundido += (hondo - b.hundido) * Math.min(1, dt * 30);
-      b.malla.position.z = -b.hundido;
+      if (Math.abs(b.malla.position.z + b.hundido) > 1e-5) { b.malla.position.z = -b.hundido; movidos = true; }
       if (!b.pulsado && hondo > RECORRIDO * 0.6) { b.pulsado = true; this._alPulsar(k, quien); }
       else if (b.pulsado && hondo < RECORRIDO * 0.3) b.pulsado = false;
     }
+    if (movidos) this.m.botonesListos();
   }
 
   _alPulsar(k, mano) {
@@ -456,8 +483,10 @@ export class Recreativa {
     }
     for (const [k, b] of Object.entries(B)) {
       const v = L[k] || 0;
-      b.malla.material.color.set(v > 0 ? b.color : COL.apagado);
-      if (v > 0) b.malla.material.color.multiplyScalar(0.45 + 0.55 * v + (b.pulsado ? 0.25 : 0));
+      _c.set(v > 0 ? b.color : COL.apagado);
+      if (v > 0) _c.multiplyScalar(0.45 + 0.55 * v + (b.pulsado ? 0.25 : 0));
+      if (!b._c) b._c = new THREE.Color(-1, -1, -1);
+      if (!b._c.equals(_c)) { b._c.copy(_c); this.m.colorBoton(k, _c); }
     }
     const usaPalanca = (modo === 'menu' || modo === 'atraccion') || ((modo === 'como' || modo === 'jugando') && c?.palanca);
     this.m.palo.material.color.set(usaPalanca ? COL.rosa : '#6a5878');
@@ -485,7 +514,7 @@ export class Recreativa {
     }
     for (const k of ACCION) if (!(k in rotulos)) rotulos[k] = '';
     pintarPanel(this.m.cPanel, { rotulos, luces, palanca });
-    this.m.decal.material.map.needsUpdate = true;
+    this.m.actualizarPanel();
   }
   _pintarMarquesina(forzar = false) {
     const M = this._marq;

@@ -17,6 +17,7 @@
 // Ataques avisados (la boca se abre, marcas en el suelo, la franja de la oleada) y cortos. Sin game over duro: al
 // caer, Blancaso te sienta un momento y retomas la fase con un corazón más (o lo dejas por hoy).
 import * as THREE from 'three';
+import { Jugo } from './jugo.js';
 
 const AM = {
   zJefe: -3.0, altoJefe: 2.9,
@@ -96,12 +97,14 @@ class Enjambre {
 // ======================================================================================
 export default {
   clave: 'Amarillo', titulo: 'Tu propio amarillo', escala: 'inmersivo', umbrales: AM.umbrales,
+  ayudas: { gatillo: 'Mantener: disparar caramelos', lateral: 'Coger dulces al vuelo', mano: { pellizco: 'Mantener: disparar', puno: 'Coger / dar un puñetazo' } },
 
   async crear(ctx) {
     const { xr, humo, ui, sonido } = ctx;
     const grupo = new THREE.Group(); grupo.name = 'minijuego-amarillo';
     const propias = []; // texturas, geometrías y materiales que se liberan al salir
     const lz = (w, h) => { const l = lienzo(w, h); propias.push(l.t); return l; };
+    const fx = new Jugo(ctx, grupo);
 
     // ---------- banderas de partida: TODAS aquí («Otra vez» llama a crear de nuevo) ----------
     const nivel = ctx.nivel || 1;
@@ -369,11 +372,20 @@ export default {
     const cab = V();
     const mano = { derecha: { pos: V(), punta: V(), vel: V(), disp: 0, dulce: null }, izquierda: { pos: V(), punta: V(), vel: V(), disp: 0, dulce: null } };
     const MANOS = () => [xr.manos.derecha, xr.manos.izquierda];
-    const abierta = m => m.activa && !m.pinza && !m.agarre;
+    // mano abierta = para. Con seguimiento de manos el pellizco parpadea y una mano relajada a veces se lee como puño:
+    // solo cuenta como cerrada si lleva 0,15 s pellizcando (el puño a medias se sigue contando como abierta)
+    const abierta = m => {
+      if (!m.activa) return false;
+      if (!m.esMano) return !m.pinza && !m.agarre;
+      return mano[m.lado].cerrada < 0.15;
+    };
+    let ultimoLeer = -1;
     function leerCuerpo() {
       aLocal(xr.cabeza, cab);
+      const dtL = ultimoLeer < 0 ? 0 : Math.min(0.1, est.t - ultimoLeer); ultimoLeer = est.t;
       for (const m of MANOS()) {
         const L = mano[m.lado];
+        L.cerrada = m.activa && m.pinza ? (L.cerrada || 0) + dtL : 0;
         if (!m.activa) continue;
         aLocal(m.pos, L.pos); aLocal(m.punta, L.punta); L.vel.copy(m.vel).applyQuaternion(qSi);
       }
@@ -433,14 +445,16 @@ export default {
       const meta = blancos()[0];
       const v = meta.clone().sub(e.p).normalize().multiplyScalar(8);
       aliadas.push({ tipo: 'devuelta', p: e.p.clone(), v, vida: 2.5, rosa: e.rosa, zPrev: null, dirigida: true });
-      sonido('campanita', { volumen: 0.5 }); sonido('zas', { volumen: 0.35 });
+      sonido('campanita', { volumen: 0.5, tono: 1 + Math.min(6, est.parrys) * 0.05 }); sonido('zas', { volumen: 0.35 });
       vibrar(0.8, 60, m);
+      fx.chispas(aMundo(e.p), e.rosa ? '#ff5fa2' : '#5adceb', 26, 1.3);
       etiqueta(e.rosa ? '¡CONTRA x2!' : '¡CONTRA!', '#ff5fa2', e.p.clone().add(_d.set(0, 0.25, -0.2)), 0.16);
     }
     function bloquear(e, m) {
       est.bloqueos++;
       sonido('bonk', { volumen: 0.4, tono: 1.2 }); sonido('chof', { volumen: 0.25 });
       vibrar(0.5, 40, m);
+      fx.chispas(aMundo(e.p), '#fff3c4', 10, 0.6);
       salpica(e.p.x, e.p.z, e.tipo === 'sudor' ? COL.sudor : COL.amarillo);
       if (!est.tipParar && est.bloqueos === 2) { est.tipParar = true; consejo('De un manotazo, se lo devuelves', 3.2); }
     }
@@ -485,7 +499,7 @@ export default {
       const fuerte = b.tipo !== 'normal';
       if (fuerte) est.destello = 0.09; else est.chispa = 0.05; // el caramelo solo aclara un poco (sin parpadeo)
       if (est.cara === 'idle' || est.caraT <= 0) ponerCara('golpe', 0.1);
-      if (fuerte) { sonido('golpe', { volumen: 0.45 }); vibrar(0.6, 50); }
+      if (fuerte) { sonido('golpe', { volumen: 0.45 }); vibrar(0.6, 50); fx.chispas(aMundo(aSala(_j.set(0, JH * 0.5, 0.2))), b.rosa ? '#ff5fa2' : '#ffd23f', 30, 1.5); }
       else if (est.t - est.ultimoVibra > 0.12) { est.ultimoVibra = est.t; vibrar(0.2, 12); }
       if (est.hp <= 0.001) terminaFase();
     }
@@ -497,6 +511,7 @@ export default {
         jefe.remove(g.s, g.aro);
         sonido('chof', { volumen: 0.6 }); vibrar(0.9, 80);
         const p = aSala(uv(g.u, g.v, 0.1));
+        fx.chispas(aMundo(p), '#ffe066', 36, 1.6);
         humo.soltar({ pos: aMundo(p), vel: new THREE.Vector3(0, 0.4, 0).applyQuaternion(qS), tam: 0.12, vida: 0.9, crece: 0.4, sube: 0.2, frena: 1.5, brillo: 0.9 });
         if (est.hp > 0.001) prog(0.7, nuevosGranos);
       }
@@ -898,6 +913,16 @@ export default {
     sonido('sting', { volumen: 0.5 });
     ui.cartela('TU PROPIO AMARILLO · pellizca para disparar, esquiva con el cuerpo, para con la mano abierta', 3.2);
     luego(3.0, () => iniciarFase(1, true));
+    // la mano fantasma: pellizca y dispara hacia el jefe, luego mano abierta y manotazo hacia delante (parar)
+    {
+      const f = xr.adelante.clone().setY(0); if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
+      const der = new THREE.Vector3(-f.z, 0, f.x);
+      const p0 = xr.cabeza.clone().addScaledVector(f, 0.32).addScaledVector(der, 0.16); p0.y -= 0.2;
+      const p1 = p0.clone().addScaledVector(f, 0.12); p1.y += 0.05;
+      const q0 = xr.cabeza.clone().addScaledVector(f, 0.3).addScaledVector(der, -0.1); q0.y -= 0.15;
+      const q1 = q0.clone().addScaledVector(f, 0.18).addScaledVector(der, 0.12);
+      fx.demo([{ p: p0 }, { p: p0, pinza: true }, { p: p1, pinza: true }, { p: p1 }, { p: q0 }, { p: q1 }], { dur: 3, tramo: 0.45, retraso: 0.2 });
+    }
 
     // ---------- bucle ----------
     const _l = V(), _w = V();
@@ -1146,9 +1171,11 @@ export default {
           if (e.vida <= 0) { sala.remove(e.s); e.s.material.map.dispose(); e.s.material.dispose(); etiquetas.splice(i, 1); }
         }
         pintarPanel();
+        fx.actualizar(dt);
       },
       destruir() {
         est.destruido = true; eventos.length = 0;
+        fx.destruir();
         ui.instruccion(null);
         if (est.estado === 'caida') ui.quitarTarjetas();
         for (const e of etiquetas) { e.s.material.map.dispose(); e.s.material.dispose(); }
@@ -1158,7 +1185,7 @@ export default {
         if (grupo.userData.api === api) grupo.userData.api = null;
       },
       // si el juego sale a mitad (no hay botón de salir en el contrato): cuenta como «no gana» con lo hecho
-      abandonar() { if (!est.acabado && est.fase > 0) { est.acabado = true; est.activo = false; ctx.terminar({ puntos: Math.round(progreso() * 100), gana: false, linea: 'Lo dejas a medias.' }); } },
+      abandonar() { if (!est.acabado) { est.acabado = true; est.activo = false; ui.instruccion(null); if (est.estado === 'caida') ui.quitarTarjetas(); ctx.terminar({ puntos: Math.round(progreso() * 100), gana: false, linea: 'Lo dejas a medias. El amarillo se queda ahí, goteando.' }); } },
     };
   },
 };

@@ -36,8 +36,11 @@ function baraja(lista) {
   return () => { if (!mazo.length) mazo = lista.slice().sort(() => Math.random() - 0.5); return mazo.pop(); };
 }
 
+import { Jugo, fusionar, unaMalla } from './jugo.js';
+
 export default {
   clave: 'Cuentas', titulo: 'La caja no cuadra', escala: 'mesa', umbrales: [1200, 3000, 5000],
+  ayudas: { gatillo: 'Coger y soltar en su bandeja', lateral: 'Coger / lanzar', mano: { pellizco: 'Coger y soltar', puno: 'Coger / lanzar' } },
 
   async crear(ctx) {
     const { THREE, fisica, agarre, humo, ui, sonido, xr } = ctx;
@@ -45,6 +48,7 @@ export default {
     const grupo = new THREE.Group(); grupo.name = 'minijuego-cuentas';
     const nivel = ctx.nivel ?? 1;
     const texturas = [];
+    const fx = new Jugo(ctx, grupo);
 
     // ---------- estado de la partida (todo se reinicia aquí) ----------
     const E = { fase: 'intro', puntos: 0, bajon: 0, combo: 0, salvado: 0, aciertos: 0, manotazos: 0, restante: DURACION, resultados: [] };
@@ -143,15 +147,17 @@ export default {
     const matsBillete = [lado, lado, mb({ map: texBillete }), mb({ map: texBillete }), lado, lado];
     const geoFactura = new THREE.BoxGeometry(0.074, 0.003, 0.096);
     const matsFactura = [ladoF, ladoF, mb({ map: texFactura }), mb({ map: texFactura }), ladoF, ladoF];
+    // cada cosa en UNA malla con UN material (antes, una llamada de dibujo por cara: 4-7 por billete)
+    const M_MONEDA = unaMalla(geoMoneda, matsMoneda), M_BILLETE = unaMalla(geoBillete, matsBillete), M_FACTURA = unaMalla(geoFactura, matsFactura);
     const texHucha = await ctx.img('obj-hucha.png').catch(() => null);
     const matHucha = texHucha ? mb({ map: texHucha, alphaTest: 0.5, side: THREE.DoubleSide }) : mb({ color: '#ff9ec4' });
 
     function hacerCosa(clave) {
       const g = new THREE.Group();
       let m;
-      if (clave === 'moneda') m = tinta(new THREE.Mesh(geoMoneda, matsMoneda), 0.003);
-      else if (clave === 'billete') m = tinta(new THREE.Mesh(geoBillete, matsBillete), 0.003);
-      else if (clave === 'factura') m = tinta(new THREE.Mesh(geoFactura, matsFactura), 0.003);
+      if (clave === 'moneda') m = tinta(new THREE.Mesh(M_MONEDA.geo, M_MONEDA.mat), 0.003);
+      else if (clave === 'billete') m = tinta(new THREE.Mesh(M_BILLETE.geo, M_BILLETE.mat), 0.003);
+      else if (clave === 'factura') m = tinta(new THREE.Mesh(M_FACTURA.geo, M_FACTURA.mat), 0.003);
       else { m = new THREE.Mesh(new THREE.PlaneGeometry(0.09, 0.073), matHucha); }
       g.add(m); g.userData.malla = m;
       return g;
@@ -206,6 +212,13 @@ export default {
       return { ...b, i, g, cuerpo, monton: [], squash: 0, vSquash: 0, brillo: 0 };
     });
     const centroBandeja = (i, out = V()) => W(bandejas[i].x, 0.03, B_Z, out);
+    // lo quieto (mostrador, cinta, registradora con sus teclas), junto por material; las bandejas se aplastan, el cajón
+    // bota y la cinta corre: fuera
+    {
+      const mueve = new Set(); for (const r of [...bandejas.map(b => b.g), cajon]) r.traverse(o => mueve.add(o));
+      fusionar(base, o => !mueve.has(o) && o.material.map !== texCinta);
+      for (const b of bandejas) fusionar(b.cuerpo); // cada bandeja se aplasta entera: fondo y paredes juntos (de 10 a 2)
+    }
 
     // ---------- Blancaso, de juguete, al otro lado de la mesa ----------
     const blancaso = await ctx.Recortable.crear('blancaso', 'humo');
@@ -347,10 +360,11 @@ export default {
       for (const mano of [xr.manos.derecha, xr.manos.izquierda]) {
         if (!mano.activa || agarre.lleva(mano) || mano.pinza) continue;
         const v = mano.vel, h = Math.hypot(v.x, v.z);
-        if (h < 1.3 || h < Math.abs(v.y)) continue;
+        // con seguimiento de manos la velocidad llega filtrada y la punta tiembla: umbral y radio más generosos
+        if (h < (mano.esMano ? 1.1 : 1.3) || h < Math.abs(v.y)) continue;
         for (const it of items.slice()) {
           if (it.estado !== 'cinta' && it.estado !== 'mesa') continue;
-          if (it.m.position.distanceTo(mano.punta) > 0.075 + it.tipo.radio) continue;
+          if (it.m.position.distanceTo(mano.punta) > (mano.esMano ? 0.09 : 0.075) + it.tipo.radio) continue;
           const vel = asistir(it, v, 50) || v.clone().multiplyScalar(0.9).add(V(0, 0.9, 0));
           it.estado = 'suelto'; it.t = 0; it.mano = mano; it.como = 'manotazo';
           fisica.lanzar(it.c, vel, V((Math.random() - 0.5) * 18, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 18));
@@ -386,13 +400,16 @@ export default {
       it.m.position.set((Math.random() - 0.5) * 0.09, 0.009 + it.tipo.apoyo + Math.min(0.03, n * 0.0035), (Math.random() - 0.5) * 0.06);
       it.m.quaternion.setFromAxisAngle(_y, Math.random() * Math.PI * 2);
       if (it.clave === 'hucha') it.m.quaternion.identity();
+      // en el montón, sin contorno y como mucho 8 por bandeja (cada una es una llamada de dibujo)
+      it.m.traverse(o => { if (o.isMesh && o.material === MAT_TINTA) o.visible = false; });
       b.monton.push(it.m);
-      while (b.monton.length > 14) b.g.remove(b.monton.shift());
+      while (b.monton.length > 8) b.g.remove(b.monton.shift());
       E.combo++; E.aciertos++;
       const pts = Math.round(it.tipo.valor * 5 * (1 + Math.floor(E.combo / 5) * 0.5)) * (it.tipo.hucha ? 3 : 1);
       E.puntos += pts; E.salvado += it.tipo.salva;
       sucio = true;
       it.mano?.vibrar(it.como === 'manotazo' ? 0.7 : 0.5, 45);
+      fx.chispas(W(b.x, 0.05, B_Z), it.tipo.hucha ? '#ffe066' : it.como === 'manotazo' ? '#ffd23f' : b.color, it.tipo.hucha ? 40 : 12 + Math.min(20, E.combo * 2), it.como === 'manotazo' ? 1.1 : 0.7);
       if (it.clave === 'moneda' || it.clave === 'hucha') { sonido('campanita', { volumen: 0.35, tono: 1.35 + Math.random() * 0.3 }); sonido('lata', { volumen: 0.18, tono: 2.3 + Math.random() * 0.4 }); }
       else sonido('papel', { volumen: 0.4, tono: 0.9 + Math.random() * 0.3 });
       const arriba = W(b.x, 0.11, B_Z);
@@ -505,6 +522,12 @@ export default {
     luego(0.5, () => { blancaso.pose('base'); blancaso.decir('Hoy la caja cuadra. Lo tengo apuntado.'); sonido('campanita', { en: regis, volumen: 0.5 }); });
     luego(1.2, () => ui.instruccion('Cada cosa a su bandeja: cógela… o dale un manotazo'));
     luego(3.2, () => { E.fase = 'juego'; blancaso.pose('agenda'); sucio = true; });
+    // la mano fantasma: pellizca algo de la cinta y lo deja en su bandeja; luego, un manotazo hacia la de la derecha
+    {
+      const coge = W(0.12, CINTA.alto + 0.03, CINTA.z), suelta = W(BANDEJAS[0].x, 0.09, B_Z);
+      const barre0 = W(-0.08, CINTA.alto + 0.03, CINTA.z + 0.02), barre1 = W(BANDEJAS[2].x, 0.05, B_Z - 0.02);
+      fx.demo([{ p: coge.clone().add(V(0, 0.08, 0.05)) }, { p: coge }, { p: coge, pinza: true }, { p: suelta, pinza: true }, { p: suelta }, { p: barre0 }, { p: barre1 }], { dur: 3.2, tramo: 0.42, escala: 0.8 });
+    }
 
     const api = {
       E, items, bandejas, get fase() { return E.fase; },
@@ -516,6 +539,7 @@ export default {
       grupo,
       actualizar(dt) {
         reloj += dt;
+        fx.actualizar(dt);
         for (let i = tareas.length - 1; i >= 0; i--) if (tareas[i].t <= reloj) { const t = tareas.splice(i, 1)[0]; t.fn(); }
         blancaso.actualizar(dt, xr.cabeza);
         if (volverPose > 0 && (volverPose -= dt) <= 0) blancaso.pose(poseFija);
@@ -546,8 +570,19 @@ export default {
           if (s.t > 1.1) { grupo.remove(s.m); s.m.material.map.dispose(); s.m.material.dispose(); s.m.geometry.dispose(); saltos.splice(i, 1); }
         }
       },
+      // salir a mitad: lo salvado va a medias a la hucha, como cuando le da el bajón
+      abandonar() {
+        if (acabado) return;
+        acabado = true; E.fase = 'fin'; ui.instruccion(null);
+        for (const it of items.slice()) quitarCosa(it);
+        const aHucha = Math.floor(E.salvado / 2);
+        blancaso.pose('suspiro', { rebote: 0.2 }); decir('Lo apunto: «se fue a mitad».');
+        try { ctx.hucha?.(aHucha); } catch (e) { console.error(e); }
+        ctx.terminar({ puntos: E.puntos, gana: false, linea: `Dejas la caja a medias. ${aHucha} monchis a la hucha.` });
+      },
       destruir() {
         acabado = true; tareas.length = 0;
+        fx.destruir();
         agarre.alCoger = alCogerAntes; agarre.alSoltar = alSoltarAntes;
         for (const it of items.slice()) quitarCosa(it, false);
         ui.instruccion(null);

@@ -12,6 +12,7 @@
 // La elección se guarda en localStorage['unake-xr-furgo-acompanantes'] para «El control».
 import * as THREE from 'three';
 import { Bocadillo } from '../bocadillo.js';
+import { Jugo } from './jugo.js';
 import { crearCabina, ACOMP, ACOMP_ORDEN, MAX_ACOMP, guardarAcompanantes, leerAcompanantes, lienzo, azar, bolsa, clamp, V, TINTA } from './furgo_cabina.js';
 
 // Medidas del 2D pasadas a metros (1 px = 0,04 m): 360 px/s → 14,4 m/s; meta 19 000 px → 760 m (~55 s).
@@ -126,11 +127,14 @@ function texturas(puff, monchi) {
 
 // ======================================================================================
 export default {
-  clave: 'Furgo', titulo: 'La furgo', escala: 'inmersivo', umbrales: [800, 1400, 2100],
+  clave: 'Furgo', titulo: 'La furgo', escala: 'inmersivo', tapaElBar: true, umbrales: [800, 1400, 2100],
+  ayudas: { gatillo: 'Tocar / coger el volante', lateral: 'Coger el volante', mano: { pellizco: 'Coger el volante', puno: 'Coger el volante' } },
 
   async crear(ctx) {
     const { xr, ui, sonido } = ctx;
     const grupo = new THREE.Group(); grupo.name = 'minijuego-furgo';
+    const nivel = Math.max(1, ctx.nivel ?? 1);
+    const fx = new Jugo(ctx, grupo);
 
     // ---------- banderas de partida: TODAS aquí («Otra vez» vuelve a llamar a crear) ----------
     const est = {
@@ -218,12 +222,14 @@ export default {
 
     // ---------- los acompañantes: recortables en el salpicadero para elegir ----------
     const figuras = {};
+    const capas = (r, si) => { for (const k of ['borde', 'canto1', 'canto2']) if (r[k]) r[k].visible = si; };
     // de tres en tres: siete personajes a la vez son ~60 peticiones de golpe (el servidor local las rechazaba)
     const cargar = async (id, i) => {
       const r = await ctx.Recortable.crear(ACOMP[id].rec, 'humo').catch(e => { console.warn('furgo: sin', id, e); return null; });
       if (!r) return;
       const estante = L(-0.42 + i * 0.145, H - 0.27, -0.57);
       r.grupo.position.copy(estante); r.grupo.scale.setScalar(0.24); r.sombra.visible = false; r.enAsiento = true;
+      capas(r, false); // en el salpicadero miden 20 cm: sin borde ni canto (de 4 llamadas de dibujo a 1 cada uno)
       cab.raiz.add(r.grupo);
       figuras[id] = { id, r, estante, toque: 0, vuelve: 0, sitio: null, hinch: 1 };
     };
@@ -287,7 +293,8 @@ export default {
       let asiento = 0;
       for (const f of Object.values(figuras)) {
         if (!va(f.id)) { f.r.grupo.visible = false; continue; }
-        f.desde = { p: f.r.grupo.position.clone(), s: f.r.grupo.scale.x }; f.vuela = 0;
+        capas(f.r, true); // a tu lado, a tamaño grande: otra vez de cartón con su canto
+        f.desde ={ p: f.r.grupo.position.clone(), s: f.r.grupo.scale.x }; f.vuela = 0;
         if (f.id === 'puky') f.sitio = { pos: L(0.3, H - 0.12, cab.PARABRISAS.z), escala: 0.62, puky: true };
         else f.sitio = { ...cab.ASIENTOS[asiento], i: asiento++ };
       }
@@ -297,6 +304,8 @@ export default {
       sonido('bocina', { volumen: 0.5 });
       cab.etiqueta('¡Arranca!', '#ffd23f', L(0.1, H + 0.1, -0.8), 0.45, 1.2);
       consejo('Coge el volante y gíralo para cambiar de carril', 'Si lo sueltas, vuelve solo al centro'); hud.visible = true;
+      // la mano fantasma coge el aro y lo gira a un lado y al otro
+      fx.demo([{ p: cab.puntoVolante(0.3).add(V(0.06, -0.05, 0.08)) }, { p: cab.puntoVolante(0.3) }, { p: cab.puntoVolante(0.3), puno: true }, { p: cab.puntoVolante(-0.4), puno: true }, { p: cab.puntoVolante(0.9), puno: true }, { p: cab.puntoVolante(0.3), puno: true }], { dur: 3, tramo: 0.45, flecha: false });
       programar(6, () => { if (est.fase !== 'elegir') titulo.visible = false; });
       pintarHud();
     }
@@ -326,14 +335,16 @@ export default {
     function toca(o) {
       const pos = L(0.1 + (o.x - est.fx) * 0.05, H + 0.0, -0.85);
       if (o.tipo === 'moncho') {
-        o.tomado = true; quitar(o); est.monchis++; est.racha++; est.base += 20; sonido('pop', { volumen: 0.3 });
+        o.tomado = true; quitar(o); est.monchis++; est.racha++; est.base += 20; sonido('pop', { volumen: 0.3, tono: 1 + (est.racha % 6) * 0.07 });
         vibrar(0.25, 25);
+        fx.chispas(cab.aMundo(pos.clone()), '#ffd23f', est.racha % 6 === 0 ? 40 : 14, est.racha % 6 === 0 ? 1.6 : 0.9);
         if (est.racha % 6 === 0) { est.base += 100; cab.etiqueta(`¡Racha de ${est.racha}! +100`, '#ffd23f', pos, 0.42); sonido('campanita', { volumen: 0.45 }); }
         else cab.etiqueta('+20', '#ffd23f', pos, 0.22, 0.7);
         return;
       }
       if (o.tipo === 'dorado') {
         o.tomado = true; quitar(o); est.base += 150; est.cotineOk = true; sonido('campanita', { volumen: 0.6 }); vibrar(0.5, 60);
+        fx.chispas(cab.aMundo(pos.clone()), '#ffe066', 44, 1.8);
         if (est.vidas < 3) { est.vidas++; cab.etiqueta('¡Una vida más!', '#7ee081', pos, 0.42); } else cab.etiqueta('¡Monchi dorado! +150', '#ffd23f', pos, 0.46);
         if (va('cotine')) { cara('cotine', false); hablar('cotine', '…Vale. Ya no digo nada.', 2.2); }
         return;
@@ -400,7 +411,9 @@ export default {
 
     // ---------- el bucle ----------
     function viaje(dt) {
-      const objetivo = est.fase === 'viaje' ? FU.vBase * est.factorVel : est.fase === 'cuenta' ? 3 : 0;
+      // acelera poco a poco hacia la meta (hasta +12 %) y con el nivel del 2D (hasta +16 %)
+      const subida = 1 + 0.12 * clamp(est.recorrido / FU.meta, 0, 1) + Math.min(0.16, 0.04 * (nivel - 1));
+      const objetivo = est.fase === 'viaje' ? FU.vBase * est.factorVel * subida : est.fase === 'cuenta' ? 3 : 0;
       est.vel += (objetivo - est.vel) * Math.min(1, 2.2 * dt);
       est.recorrido += est.vel * dt;
       est.invul = Math.max(0, est.invul - dt);
@@ -472,11 +485,14 @@ export default {
     // ---------- arranque ----------
     ui.quitarTarjetas?.();
     ctx.musica?.('minijuego');
-    est.elegidos = (leerAcompanantes() || []).filter(id => figuras[id]);
+    est.elegidos = (leerAcompanantes(ctx) || []).filter(id => figuras[id]);
     est.fase = 'elegir';
     for (const g of Object.values(figuras)) g.r.grupo.position.y = g.estante.y + (est.elegidos.includes(g.id) ? 0.035 : 0);
     pintarEleccion(); pintarHud(); hud.visible = false; // en la elección, el salpicadero es de ellos
     cab.carr.v = 3;
+    // la mano fantasma toca a dos de ellos con el dedo (así se eligen)
+    { const fs = Object.values(figuras); if (fs.length >= 2) { const a = centroFigura(fs[1]), b = centroFigura(fs[fs.length - 2]), arr = V(0, 0.08, 0.1);
+      fx.demo([{ p: a.clone().add(arr) }, { p: a }, { p: a.clone().add(arr) }, { p: b.clone().add(arr) }, { p: b }, { p: b.clone().add(arr) }], { dur: 3, tramo: 0.4, flecha: false, retraso: 0.6 }); } }
 
     // para el bot (herramientas/pruebas/bots/furgo.js)
     const api = {
@@ -504,7 +520,7 @@ export default {
             f.toque = Math.max(0, f.toque - dt);
             for (const m of [xr.manos.derecha, xr.manos.izquierda]) {
               if (!m.activa || f.toque > 0) continue;
-              if (m.punta.distanceTo(centroFigura(f)) < 0.075) { f.toque = 0.8; m.vibrar(0.5, 35); alternar(f.id); }
+              if (m.punta.distanceTo(centroFigura(f)) < (m.esMano ? 0.09 : 0.075)) { f.toque = 0.8; m.vibrar(0.5, 35); alternar(f.id); }
             }
           }
         }
@@ -539,9 +555,20 @@ export default {
         charla.actualizar(dt, 0, cam, charlaAncla);
         if (est.bajaVolante > 0 && est.bajaVolante < 1) { est.bajaVolante = Math.min(1, est.bajaVolante + dt / 0.8); cab.volBase.position.y = H - 0.36 - 0.2 * est.bajaVolante; cab.volBase.position.z = -0.36 - 0.12 * est.bajaVolante; }
         pintarHud();
+        fx.actualizar(dt);
+      },
+      // para app.js: lo elegido, por si quiere guardarlo en el motor (ESTADO.furgoAcompanantes) y pasarlo a «El control»
+      get datos() { return { acompanantes: [...est.elegidos] }; },
+      // salir a mitad: se acaba el viaje con lo que lleves
+      abandonar() {
+        if (est.acabado) return;
+        est.acabado = true; est.fase = 'fin'; ui.instruccion(null); ui.quitarTarjetas?.(); charla.ocultar(); titulo.visible = false;
+        est.bajaVolante = 0.001;
+        ctx.terminar({ puntos: Math.round(est.base * est.mult), gana: false, linea: 'Paras en el arcén y os bajáis a estirar las piernas. La feria, otro día.' });
       },
       destruir() {
         est.destruido = true; eventos.length = 0;
+        fx.destruir();
         ui.instruccion(null); ui.quitarTarjetas?.();
         for (const f of Object.values(figuras)) { f.r.callar(); f.r.frente.material.color.set('#ffffff'); f.r.grupo.parent?.remove(f.r.grupo); }
         for (const t of propias) t.dispose();

@@ -89,4 +89,16 @@ yield* hasta(() => api() && api() !== viejo && !M.resultado, 8);
 log('otra vez: partida nueva');
 yield* partida(2);
 if (M.resultados.length !== 2) throw new Error('faltan resultados: ' + M.resultados.length);
+// salir a mitad: una partida nueva y abandonar() a los pocos segundos → terminar con gana:false
+{
+  const o = M.mod.crear; M.inst = null;
+  M.mod.crear = async ctx => (M.inst = await o.call(M.mod, ctx));
+  M.ui.quitarTarjetas?.(); M.reiniciar();
+  yield* hasta(() => M.inst && !M.resultado, 10);
+  yield* esperar(3);
+  M.inst.abandonar();
+  yield* hasta(() => M.resultado, 3);
+  if (M.resultado.gana !== false) throw new Error('abandonar no termina con gana:false');
+  log('abandonar: ' + JSON.stringify(M.resultado));
+}
 log('FIN OK');

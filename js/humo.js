@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { textura } from './recursos.js';
 
-const MAX = 320;
+const MAX = 360;
 const VERT = /* glsl */`
   attribute vec4 iPos;    // xyz, tamaño
   attribute vec4 iDatos;  // alfa, giro, brillo, -
@@ -52,36 +52,48 @@ export class Humo {
     this.malla.name = 'humo';
     this.p = []; // bocanadas vivas
     this.cortinilla = null;
+    this.pegajosos = []; // esferas { c: Vector3, r, alPegar(bocanada|aro, 'humo'|'aro') } (las caras: js/reacciones.js)
   }
 
   // una bocanada: pos, vel (m/s), tam (m), vida (s), crece (m/s), sube (m/s²), brillo (0 = color del dibujo, 1 = blanco)
-  soltar({ pos, vel = new THREE.Vector3(), tam = 0.12, vida = 2.5, crece = 0.12, sube = 0.05, frena = 1.2, brillo = 0.35, alfa = 0.9, tamMax = 3, ambiente = false }) {
+  // Lo que nace a menos de 17 cm de tu cabeza es «tuyo» (tu boca): se pega a las caras y las hace toser.
+  soltar({ pos, vel = new THREE.Vector3(), tam = 0.12, vida = 2.5, crece = 0.12, sube = 0.05, frena = 1.2, brillo = 0.35, alfa = 0.9, tamMax = 3, ambiente = false, tuyo }) {
     if (this.p.length >= MAX) this.p.shift();
     const b = { ambiente, pos: pos.clone(), vel: vel.clone(), tam, vida, edad: 0, crece, sube, frena, brillo, alfa, giro: Math.random() * 6.28, vgiro: (Math.random() - 0.5) * 0.6, tamMax };
+    b.tuyo = tuyo ?? (!ambiente && !!this._cam && pos.distanceToSquared(this._cam) < 0.029);
     this.p.push(b);
     return b;
   }
 
-  // lo que sueltas por la boca tras la calada: fuerza 0-1
+  // lo que sueltas por la boca tras la calada: fuerza 0-1. Un chorro denso (núcleo claro y rápido) y, alrededor,
+  // velos grandes y lentos que se quedan flotando: así tiene cuerpo sin taparte (nacen pequeños y lejos de los ojos).
   exhalar(boca, dir, fuerza = 0.6) {
-    const n = 6 + Math.round(fuerza * 10);
+    const n = 8 + Math.round(fuerza * 14), o = boca.clone(), eje = dir.clone().normalize();
     for (let i = 0; i < n; i++) {
-      const d = dir.clone().multiplyScalar(0.35 + fuerza * 0.9 * (0.6 + Math.random() * 0.4));
-      d.x += (Math.random() - 0.5) * 0.18; d.y += (Math.random() - 0.3) * 0.12; d.z += (Math.random() - 0.5) * 0.18;
-      setTimeout(() => this.soltar({ pos: boca, vel: d, tam: 0.05 + Math.random() * 0.04, vida: 2.6 + Math.random() * 1.5, crece: 0.16, sube: 0.06, frena: 1.4 }), i * 45);
+      const velo = i % 3 === 2;
+      const d = eje.clone().multiplyScalar((velo ? 0.22 : 0.35) + fuerza * (velo ? 0.45 : 0.95) * (0.6 + Math.random() * 0.4));
+      d.x += (Math.random() - 0.5) * 0.2; d.y += (Math.random() - 0.3) * 0.13; d.z += (Math.random() - 0.5) * 0.2;
+      setTimeout(() => {
+        const b = this.soltar(velo
+          ? { pos: o, vel: d, tam: 0.06, vida: 4.5 + Math.random() * 2, crece: 0.11, sube: 0.035, frena: 1.1, brillo: 0.2, alfa: 0.55, tamMax: 0.55 }
+          : { pos: o, vel: d, tam: 0.04 + Math.random() * 0.035, vida: 2.8 + Math.random() * 1.6, crece: 0.15, sube: 0.06, frena: 1.4, brillo: 0.45, alfa: 0.92, tamMax: 0.42 });
+        b.vgiro = (Math.random() - 0.5) * 1.6; // se enrosca
+      }, i * 38);
     }
   }
-  // un aro: bocanadas pequeñas en círculo que se abre
+  // un aro de verdad: un anillo de bocanadas que viaja junto, se abre despacio y gira sobre sí mismo.
+  // Si choca con algo pegajoso (una cara), se para y se le queda alrededor como un halo.
   aro(boca, dir, tam = 0.05) {
     const eje = dir.clone().normalize();
     const u = new THREE.Vector3().crossVectors(eje, Math.abs(eje.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize();
     const v = new THREE.Vector3().crossVectors(eje, u);
-    const n = 12;
+    const A = { c: boca.clone(), vel: eje.clone().multiplyScalar(0.6), r: tam, vr: 0.05, ang: 0, w: 0.5 + Math.random() * 0.4, u, v, sube: 0.012, frena: 0.3, pegado: null, vivos: 0 };
+    const n = 18;
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const r = u.clone().multiplyScalar(Math.cos(a)).addScaledVector(v, Math.sin(a));
-      this.soltar({ pos: boca.clone().addScaledVector(r, tam), vel: eje.clone().multiplyScalar(0.55).addScaledVector(r, 0.09), tam: 0.035, vida: 3.2, crece: 0.02, sube: 0.015, frena: 0.35, brillo: 0.55 });
+      const b = this.soltar({ pos: boca, tam: 0.026, vida: 4.2, crece: 0.012, sube: 0, frena: 0, brillo: 0.65, alfa: 0.95, tamMax: 0.09, tuyo: !!this._cam && boca.distanceToSquared(this._cam) < 0.029 });
+      b.aro = A; b.a0 = (i / n) * Math.PI * 2; A.vivos++;
     }
+    return A;
   }
   // quita el humo de ambiente del bar (al volver a tu casa)
   disiparAmbiente() { for (const b of this.p) if (b.ambiente) b.vida = Math.min(b.vida, b.edad + 0.4); }
@@ -120,15 +132,32 @@ export class Humo {
       }
       if (c.t > 1.35) this.cortinilla = null;
     }
-    const vivos = [];
+    const vivos = [], peg = this.pegajosos, f = this._f = (this._f || 0) + 1;
     for (const b of this.p) {
       b.edad += dt;
-      if (b.edad >= b.vida) continue;
+      if (b.edad >= b.vida) { if (b.aro) b.aro.vivos--; continue; }
       b.vel.multiplyScalar(Math.max(0, 1 - b.frena * dt));
       b.vel.y += b.sube * dt;
       b.pos.addScaledVector(b.vel, dt);
       b.tam = Math.min(b.tamMax, b.tam + b.crece * dt);
       b.giro += b.vgiro * dt;
+      if (b.aro) {
+        const A = b.aro;
+        if (A.f !== f) { A.f = f; this._pasoAro(A, dt); }
+        if (A.alarga && !b.alargado) { b.alargado = true; b.vida = Math.max(b.vida, b.edad + A.alarga); }
+        const a = b.a0 + A.ang;
+        b.pos.copy(A.c).addScaledVector(A.u, Math.cos(a) * A.r).addScaledVector(A.v, Math.sin(a) * A.r);
+      } else if (b.tuyo && !b.pegado && peg.length) {
+        // tu humo se pega a las caras: frena en seco, se ensancha y se queda un rato
+        for (const s of peg) {
+          const r = s.r + b.tam * 0.4; // la bocanada ya abierta también roza
+          if (b.pos.distanceToSquared(s.c) > r * r) continue;
+          b.pegado = true; b.vel.multiplyScalar(0.12); b.frena = 4; b.sube = 0.012; b.crece = 0.07;
+          b.vida = Math.max(b.vida, b.edad + 2.4); b.vgiro *= 0.3;
+          try { s.alPegar?.(b, 'humo'); } catch (e) { console.error(e); }
+          break;
+        }
+      }
       vivos.push(b);
     }
     this.p = vivos;
@@ -147,4 +176,24 @@ export class Humo {
     this.aPos.needsUpdate = true; this.aDatos.needsUpdate = true;
   }
   mirarDesde(v) { this._cam = v; }
+
+  // el centro del aro avanza y frena, se abre y gira; si da en una cara se queda abrazándola
+  _pasoAro(A, dt) {
+    A.ang += A.w * dt;
+    if (A.pegado) {
+      const s = A.pegado;
+      A.c.lerp(s.c, Math.min(1, dt * 3));
+      if (A.r < s.r * 1.05) A.r += 0.14 * dt;
+      return;
+    }
+    A.vel.multiplyScalar(Math.max(0, 1 - A.frena * dt)); A.vel.y += A.sube * dt;
+    A.c.addScaledVector(A.vel, dt);
+    A.r += A.vr * dt; A.vr *= Math.max(0, 1 - 0.25 * dt);
+    for (const s of this.pegajosos) {
+      if (A.c.distanceToSquared(s.c) > (s.r + A.r * 0.5) ** 2) continue;
+      A.pegado = s; A.vel.set(0, 0, 0); A.w *= 1.6; A.alarga = 3;
+      try { s.alPegar?.(A, 'aro'); } catch (e) { console.error(e); }
+      break;
+    }
+  }
 }

@@ -65,6 +65,7 @@ export class Hucha {
     this.marcador.position.set(0, ALTO_CAJA + ALTO_CERDO + 0.14, 0); g.add(this.marcador);
     // monedas (fichas monchi) instanciadas
     const tm = await textura('base/assets/img/obj-ficha-monchi.png');
+    if (this.g !== g) return this; // la quitaron mientras cargaba (saliste de la plaza enseguida)
     this.fichas = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.045, 0.045), new THREE.MeshBasicMaterial({ map: tm, alphaTest: 0.5, side: THREE.DoubleSide }), 12);
     this.fichas.count = 0; this.fichas.frustumCulled = false; g.add(this.fichas);
     this._humo();

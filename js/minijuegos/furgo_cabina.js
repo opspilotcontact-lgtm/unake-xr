@@ -32,7 +32,10 @@ export const MAX_ACOMP = 3;
 
 // Paso de «La furgo» a «El control» mientras el motor de historia no lo haga (ESTADO.furgoAcompanantes en el 2D).
 export const CLAVE_ACOMP = 'unake-xr-furgo-acompanantes';
-export function leerAcompanantes() {
+// Primero lo que mande el juego (ctx.datos.acompanantes, p. ej. ESTADO.furgoAcompanantes del motor); si no, localStorage.
+export function leerAcompanantes(ctx) {
+  const d = ctx?.datos?.acompanantes;
+  if (Array.isArray(d)) return d.filter(id => ACOMP[id]).slice(0, MAX_ACOMP);
   try { const l = JSON.parse(localStorage.getItem(CLAVE_ACOMP) || 'null'); if (Array.isArray(l)) return l.filter(id => ACOMP[id]).slice(0, MAX_ACOMP); } catch { /* sin almacenamiento */ }
   return null;
 }
@@ -335,12 +338,17 @@ export async function crearCabina(ctx) {
       const m = xr.manos[lado], s = vol.manos[lado];
       const gesto = m.activa && (m.pinza || m.agarre);
       const l = enVolante(m.pos), r = Math.hypot(l.x, l.y), a = Math.atan2(l.y, l.x);
+      // con seguimiento de manos el pellizco parpadea y la mano tiembla: más margen de gracia y de distancia, y vale
+      // cerrar la mano ANTES de llegar al aro (con mandos hay que apretar ya en el aro)
+      const mano = !!m.esMano, margen = mano ? 0.12 : 0.085, gracia = mano ? 0.35 : 0.2;
       if (s) {
-        if (gesto) s.gracia = 0.2; else s.gracia -= dt; // el pellizco parpadea con el seguimiento de manos: margen
-        if (s.gracia <= 0 || !m.activa || Math.abs(r - R_VOL) > 0.2 || Math.abs(l.z) > 0.2) { vol.manos[lado] = null; continue; }
-        let d = a - s.a; d = Math.atan2(Math.sin(d), Math.cos(d)); s.a = a; s.d = d;
-      } else if (gesto && (m.empiezaPinza || m.empiezaAgarre) && Math.abs(r - R_VOL) < 0.085 && Math.abs(l.z) < 0.1) {
-        vol.manos[lado] = { a, d: 0, gracia: 0.2 }; m.vibrar(0.5, 40);
+        if (gesto) s.gracia = gracia; else s.gracia -= dt;
+        if (s.gracia <= 0 || !m.activa || Math.abs(r - R_VOL) > 0.22 || Math.abs(l.z) > 0.22) { vol.manos[lado] = null; continue; }
+        let d = a - s.a; d = Math.atan2(Math.sin(d), Math.cos(d)); s.a = a;
+        if (mano && r < 0.05) d = 0; // cerca del eje el ángulo de la mano no significa nada (temblaría el volante)
+        s.d = d;
+      } else if (gesto && (m.empiezaPinza || m.empiezaAgarre || mano) && Math.abs(r - R_VOL) < margen && Math.abs(l.z) < margen + 0.02) {
+        vol.manos[lado] = { a, d: 0, gracia }; m.vibrar(0.5, 40);
       }
     }
     const sj = ['derecha', 'izquierda'].map(k => vol.manos[k]).filter(Boolean);
@@ -359,8 +367,8 @@ export async function crearCabina(ctx) {
     if (man.mano) {
       const m = xr.manos[man.mano], l = enManivela(m.pos);
       const gesto = m.activa && (m.pinza || m.agarre);
-      if (gesto) man.gracia = 0.2; else man.gracia -= dt;
-      if (man.gracia <= 0 || !m.activa || l.length() > 0.22) man.mano = null;
+      if (gesto) man.gracia = m.esMano ? 0.35 : 0.2; else man.gracia -= dt;
+      if (man.gracia <= 0 || !m.activa || l.length() > (m.esMano ? 0.26 : 0.22)) man.mano = null;
       else {
         const a = Math.atan2(-l.z, -l.y); let d = a - man.a; d = Math.atan2(Math.sin(d), Math.cos(d)); man.a = a;
         manivela.rotation.x += d; man.giro += Math.abs(d); man.cerrarEn = 1.6;
@@ -368,9 +376,9 @@ export async function crearCabina(ctx) {
       }
     } else {
       for (const lado of ['izquierda', 'derecha']) {
-        const m = xr.manos[lado]; if (!m.activa || !(m.empiezaPinza || m.empiezaAgarre)) continue;
-        const pomo = manivela.localToWorld(_k.copy(POMO));
-        if (m.pos.distanceTo(pomo) < 0.08 || enManivela(m.pos).length() < 0.07) { const l = enManivela(m.pos); man.mano = lado; man.a = Math.atan2(-l.z, -l.y); man.gracia = 0.2; m.vibrar(0.5, 40); break; }
+        const m = xr.manos[lado]; if (!m.activa || !(m.empiezaPinza || m.empiezaAgarre || (m.esMano && (m.pinza || m.agarre)))) continue;
+        const pomo = manivela.localToWorld(_k.copy(POMO)), tol = m.esMano ? 0.11 : 0.08;
+        if (m.pos.distanceTo(pomo) < tol || enManivela(m.pos).length() < tol - 0.01) { const l = enManivela(m.pos); man.mano = lado; man.a = Math.atan2(-l.z, -l.y); man.gracia = 0.2; m.vibrar(0.5, 40); break; }
       }
     }
     // abanicar: mano rápida junto a la ventanilla

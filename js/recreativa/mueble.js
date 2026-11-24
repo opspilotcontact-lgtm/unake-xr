@@ -15,7 +15,7 @@ export const COL = {
 // perfil del lateral (z, y): pie, panel inclinado, pantalla echada hacia atrás, marquesina
 const PERFIL = [[-0.40, 0], [0.40, 0], [0.40, 0.82], [0.60, 0.88], [0.60, 0.95], [0.27, 1.03], [0.27, 1.08], [0.11, 1.66],
   [0.24, 1.70], [0.24, 1.95], [-0.40, 1.95]];
-const HUECO = 0.80, LADO = 0.03;
+const HUECO = 0.80, LADO = 0.03, ALTO_ATLAS = 1536;
 export const ALTO_PANEL = 0.99; // centro del panel de pie
 const ANG_PANEL = Math.atan2(0.08, 0.33), ANG_PANT = Math.atan2(0.16, 0.58);
 export const PANT = { ancho: 0.70, alto: 0.70 * 9 / 16 };
@@ -118,15 +118,18 @@ export function crearMueble() {
   }
   const domo = new THREE.SphereGeometry(0.03, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
   piezas.push(hornear(domo, enPanel(MANDOS.palanca.x, MANDOS.palanca.y, 0, Math.PI / 2), COL.tinta));
-  const estaticos = new THREE.Mesh(mergeGeometries(piezas), new THREE.MeshBasicMaterial({ vertexColors: true }));
-  const contorno = new THREE.Mesh(mergeGeometries(cascos), new THREE.MeshBasicMaterial({ color: COL.tinta, side: THREE.BackSide }));
-  estaticos.name = 'recreativa-mueble'; contorno.name = 'recreativa-contorno';
-  cuerpo.add(estaticos, contorno);
+  // el contorno (cascos con las caras dadas la vuelta) va en la MISMA malla: una llamada de dibujo para todo el mueble
+  const estaticos = new THREE.Mesh(mergeGeometries([...piezas, ...cascos.map(alReves)]), new THREE.MeshBasicMaterial({ vertexColors: true }));
+  estaticos.name = 'recreativa-mueble';
+  cuerpo.add(estaticos);
 
-  // ---------- arte pintado (un atlas para laterales, frontal y bisel) ----------
-  const atlas = lienzo(1024, 1024);
+  // ---------- arte pintado (un atlas para laterales, frontal y bisel; debajo, el arte del panel) ----------
+  // El lienzo mide 1024 × 1536: los primeros 1024 px de alto son el arte fijo y los 448 siguientes, el panel (que cambia
+  // con el juego y se copia aquí con actualizarPanel()). Así laterales, frontal, bisel y panel son UNA llamada.
+  const atlas = lienzo(1024, ALTO_ATLAS);
   pintarAtlas(atlas.getContext('2d'));
   const texAtlas = texturaDe(atlas);
+  const vAtlas = v => 1 - (1 - v) * 1024 / ALTO_ATLAS; // v del atlas viejo (1024 px) → v del lienzo alto
   const artes = [];
   // laterales: la forma del perfil con UV al trozo del atlas (izquierdo 0-256, derecho 256-512; derecho espejado)
   for (const s of [-1, 1]) {
@@ -135,7 +138,7 @@ export function crearMueble() {
     for (let i = 0; i < p.count; i++) {
       const z = p.getX(i), y = p.getY(i);
       const u = s < 0 ? (z + 0.40) / 1.0 : (0.60 - z) / 1.0;
-      uv.setXY(i, s < 0 ? u * 0.25 : 0.25 + u * 0.25, y / 1.95);
+      uv.setXY(i, s < 0 ? u * 0.25 : 0.25 + u * 0.25, vAtlas(y / 1.95));
     }
     const x = s > 0 ? HUECO / 2 + LADO + 0.002 : -HUECO / 2 - LADO - 0.002;
     // forma X→z, Y→y, normal→±x. En el derecho es una reflexión: se invierte el giro de los triángulos
@@ -149,11 +152,17 @@ export function crearMueble() {
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) ? u1 : u0, uv.getY(i) ? v1 : v0);
     g.applyMatrix4(m); return g;
   };
-  artes.push(plano(HUECO, 0.74, 0.5, 0.5, 1, 1, M(0, 0.45, 0.401)));                                   // frontal
-  artes.push(plano(HUECO, 0.62, 0.5, 0, 1, 0.5, M(centroPant.x, centroPant.y, centroPant.z, -ANG_PANT))); // bisel
+  artes.push(plano(HUECO, 0.74, 0.5, vAtlas(0.5), 1, vAtlas(1), M(0, 0.45, 0.401)));                                   // frontal
+  artes.push(plano(HUECO, 0.62, 0.5, vAtlas(0), 1, vAtlas(0.5), M(centroPant.x, centroPant.y, centroPant.z, -ANG_PANT))); // bisel
+  // el arte del panel (antes una malla suelta, hija del panel): mismo sitio, ya en coordenadas del cuerpo
+  artes.push(plano(0.80, 0.35, 0, 1 - (1024 + 448) / ALTO_ATLAS, 1, 1 - 1024 / ALTO_ATLAS, MP.clone().multiply(M(0, 0, 0.0015))));
   const arte = new THREE.Mesh(mergeGeometries(artes.map(g => g.index ? g.toNonIndexed() : g)), new THREE.MeshBasicMaterial({ map: texAtlas }));
   arte.name = 'recreativa-arte';
   cuerpo.add(arte);
+  const cPanel = lienzo(1024, 448);
+  const gAtlas = atlas.getContext('2d');
+  // copia el lienzo del panel a su trozo del atlas (tras pintarPanel)
+  const actualizarPanel = () => { gAtlas.clearRect(0, 1024, 1024, 448); gAtlas.drawImage(cPanel, 0, 1024); texAtlas.needsUpdate = true; };
 
   // ---------- marquesina iluminada ----------
   const cMarq = lienzo(1024, 288);
@@ -173,31 +182,39 @@ export function crearMueble() {
   mira.position.z = 0.005; mira.renderOrder = 3; mira.visible = false; pantalla.add(mira);
   cuerpo.add(pantalla);
 
-  // ---------- el panel: arte (cambia con el juego), palanca y botones ----------
-  const cPanel = lienzo(1024, 448);
-  const decal = new THREE.Mesh(new THREE.PlaneGeometry(0.80, 0.35), new THREE.MeshBasicMaterial({ map: texturaDe(cPanel) }));
-  decal.position.z = 0.0015; decal.name = 'recreativa-panel-arte';
-  panel.add(decal);
-
+  // ---------- el panel: palanca y botones ----------
   const pivote = new THREE.Group(); pivote.position.set(MANDOS.palanca.x, MANDOS.palanca.y, 0.0);
   const varilla = hornear(new THREE.CylinderGeometry(0.0075, 0.0095, 0.115, 10), M(0, 0, 0.0575, Math.PI / 2), '#2b2433', { normalLocal: new THREE.Vector3(0, 0.3, 1).normalize() });
   const bolaG = hornear(new THREE.SphereGeometry(0.034, 18, 12), M(0, 0, 0.125), '#ffffff', { normalLocal: new THREE.Vector3(-0.3, 0.4, 1).normalize() });
+  // el contorno de la bola, dado la vuelta, en la misma malla (la tinta × el color de la palanca sigue casi negra)
+  const bolaT = alReves(hornear(new THREE.SphereGeometry(0.0375, 14, 10), M(0, 0, 0.125), COL.tinta, { luz: false }));
   // la bola se tiñe con el color de la palanca: el blanco de los vértices × color
-  const palo = new THREE.Mesh(mergeGeometries([varilla, bolaG]), new THREE.MeshBasicMaterial({ vertexColors: true }));
-  const bola = new THREE.Mesh(new THREE.SphereGeometry(0.0375, 14, 10), new THREE.MeshBasicMaterial({ color: COL.tinta, side: THREE.BackSide }));
-  bola.position.z = 0.125;
-  pivote.add(palo, bola); panel.add(pivote);
+  const palo = new THREE.Mesh(mergeGeometries([varilla, bolaG, bolaT]), new THREE.MeshBasicMaterial({ vertexColors: true }));
+  pivote.add(palo); panel.add(pivote);
   palo.material.color.set(COL.rosa);
 
+  // los 8 botones: UNA malla instanciada (tapa de radio 1, escalada) con el color de cada uno por instancia.
+  // Cada botón conserva un `malla` (Object3D sin dibujo) para su posición/hundido; recreativa.js llama a
+  // botonesListos() tras moverlos y fija los colores con colorBoton(k, color).
   const botones = {};
-  const tapa = r => hornear(new THREE.CylinderGeometry(r, r * 1.04, ALTO_BOTON, 24), M(0, 0, ALTO_BOTON / 2, Math.PI / 2), '#ffffff', { normalLocal: new THREE.Vector3(0, 0.3, 1).normalize() });
-  for (const [k, b] of Object.entries(MANDOS)) {
-    if (k === 'palanca') continue;
-    const malla = new THREE.Mesh(tapa(b.r), new THREE.MeshBasicMaterial({ vertexColors: true, color: COL.apagado }));
-    malla.position.set(b.x, b.y, 0); malla.name = 'boton-' + k;
+  const tapa = hornear(new THREE.CylinderGeometry(1, 1.04, ALTO_BOTON, 24), M(0, 0, ALTO_BOTON / 2, Math.PI / 2), '#ffffff', { normalLocal: new THREE.Vector3(0, 0.3, 1).normalize() });
+  const claves = Object.keys(MANDOS).filter(k => k !== 'palanca');
+  const tapas = new THREE.InstancedMesh(tapa, new THREE.MeshBasicMaterial({ vertexColors: true }), claves.length);
+  tapas.name = 'recreativa-botones'; tapas.frustumCulled = false; panel.add(tapas);
+  claves.forEach((k, i) => {
+    const b = MANDOS[k];
+    const malla = new THREE.Object3D(); malla.name = 'boton-' + k;
+    malla.position.set(b.x, b.y, 0); malla.scale.set(b.r, b.r, 1);
     panel.add(malla);
-    botones[k] = { malla, ...b, hundido: 0, pulsado: false, forzado: false, luz: 0 };
-  }
+    botones[k] = { malla, i, ...b, hundido: 0, pulsado: false, forzado: false, luz: 0 };
+    tapas.setColorAt(i, new THREE.Color(COL.apagado));
+  });
+  const botonesListos = () => {
+    for (const b of Object.values(botones)) { b.malla.updateMatrix(); tapas.setMatrixAt(b.i, b.malla.matrix); }
+    tapas.instanceMatrix.needsUpdate = true;
+  };
+  const colorBoton = (k, color) => { tapas.setColorAt(botones[k].i, color); tapas.instanceColor.needsUpdate = true; };
+  botonesListos();
 
   // ---------- luz del monedero y sombra en el suelo ----------
   const moneda = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.105), new THREE.MeshBasicMaterial({ color: '#ff9a1f', transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
@@ -208,7 +225,16 @@ export function crearMueble() {
   sombra.rotation.x = -Math.PI / 2; sombra.position.set(0, 0.003, 0.05); sombra.renderOrder = -1;
   maquina.add(sombra);
 
-  return { maquina, cuerpo, panel, pantalla, cristal, mira, decal, cPanel, marquesina, cMarq, pivote, palo, botones, moneda };
+  return { maquina, cuerpo, panel, pantalla, cristal, mira, cPanel, actualizarPanel, marquesina, cMarq, pivote, palo, botones, botonesListos, colorBoton, moneda };
+}
+// da la vuelta a los triángulos (geometría sin índice): una cara de atrás que se dibuja con el material normal
+function alReves(g) {
+  const a = g.attributes.position.array, c = g.attributes.color?.array;
+  for (const arr of [a, c]) {
+    if (!arr) continue;
+    for (let i = 0; i < arr.length; i += 9) for (let k = 0; k < 3; k++) { const t = arr[i + 3 + k]; arr[i + 3 + k] = arr[i + 6 + k]; arr[i + 6 + k] = t; }
+  }
+  return g;
 }
 
 // ---------- pintura ----------

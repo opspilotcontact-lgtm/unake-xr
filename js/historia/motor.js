@@ -33,6 +33,11 @@ export const RECREATIVA = ['Cuentas', 'Tarta', 'Barra', 'Lasslow', 'Periquito', 
 // Niebla y el Mirón aún no tienen sala propia en el XR: PROPUESTA, la plaza (ella deambula; él vigila el banco).
 export const CASAS = { blancaso: 'plaza', perico: 'fuera', palicaso: 'dentro', pompa: 'dentro', lasslow: 'dentro', cotine: 'cocina', puky: 'bano', niebla: 'plaza', miron: 'plaza' };
 const SOLO_HUMO = ['puky'];
+// Sin figura en las salas del XR (deambulan): entrar en su sala cuenta como verlos.
+const SIN_FIGURA = ['niebla', 'miron'];
+// Orden del XR para los capítulos de objetivos a la vez: en «Una qué» primero la puerta y fumar (es lo que tienes
+// delante al empezar) y luego el encargo; si no, la ★ pedía un encargo mientras Perico te pedía la contraseña.
+const ORDEN_XR = { 'una-que': [1, 2, 0] };
 const PISTA_MS = 180000; // TAREA_PISTA_MS del 2D
 
 // ---------- equivalencias de los capítulos de objetivos (todos a la vez) ----------
@@ -183,7 +188,8 @@ export class MotorHistoria {
   }
   _objetivosViejos(cap) {
     const hechos = this.E.hechos[cap.id] || [];
-    const primero = cap.objetivos.findIndex((_, j) => !hechos.includes(j));
+    const orden = ORDEN_XR[cap.id] || cap.objetivos.map((_, j) => j);
+    const primero = orden.find(j => !hechos.includes(j)) ?? -1;
     return cap.objetivos.map((o, i) => {
       const k = `${cap.id}#${i}`, eq = EQUIV_OBJETIVOS[k] || { como: 'pendiente', accion: { tipo: 'seguir' } };
       let progreso = '';
@@ -254,6 +260,7 @@ export class MotorHistoria {
       case 'sala': this._entrarSala(x.id, x.gente); break;
       case 'hablar': this._hablar(x.con); break;
       case 'recoger': this._recoger(x.sala, x.tipo); break;
+      case 'recado': this._comprarRecado(); break;
       case 'hucha': this.aportar(x.monchis ?? E.monchis); break;
       case 'entrega': this.sumar('entregas'); E.monchis += x.pago || 0; break;
       default: console.warn('[historia] evento desconocido', tipo);
@@ -467,8 +474,9 @@ export class MotorHistoria {
       case 'pasar': this.avisar('pase', { a: a.a }); break;
       case 'barrio': {
         const mundo = o.mundo || a.mundo; if (mundo) this.avisar('mundo', { mundo });
-        if (a.con) for (const c of [].concat(a.con)) this.avisar('hablar', { con: c });
-        else { if (o.tipo === 'recado') E.monchis += 50; for (const s of a.salas || []) this.avisar('sala', { id: s }); }
+        if (o.id === 'una-que#0') this.avisar('entrega', { pago: 40 }); // el encargo de la tienda, entregado
+        else if (a.con) for (const c of [].concat(a.con)) this.avisar('hablar', { con: c });
+        else { if (o.tipo === 'recado') E.monchis += 50; for (const s of a.salas || []) { this.avisar('sala', { id: s }); if (o.tipo === 'recoger') this.avisar('recoger', { sala: s }); } }
         break;
       }
       case 'seguir': this.saltar(); break;
@@ -481,9 +489,9 @@ export class MotorHistoria {
   _entrarSala(id, gente) {
     const E = this.E; if (!id) return;
     this.sumar(`sala_${id}`);
-    const aqui = gente || Object.entries(CASAS).filter(([p, s]) => s === id && (E.mundoXR === 'humo' || !SOLO_HUMO.includes(p))).map(([p]) => p);
+    const aqui = gente ? [...gente, ...SIN_FIGURA.filter(p => CASAS[p] === id)] : Object.entries(CASAS).filter(([p, s]) => s === id && (E.mundoXR === 'humo' || !SOLO_HUMO.includes(p))).map(([p]) => p);
     for (const p of aqui) this._hablar(p);
-    this._recoger(id);
+    // recoger ya NO se cumple al entrar: lo que hay que coger brilla en la sala y se coge con la mano (app.js)
     if (id === 'tienda') this._comprarRecado();
     if (E.boquillaEn && E.boquillaEn.sala === id) { E.boquillaEn = null; E.inv.boquilla += 2; this.emitir('alCambiar', { tipo: 'boquilla' }); }
   }
@@ -498,9 +506,12 @@ export class MotorHistoria {
     const { t, T } = a;
     if (t.tipo !== 'charla' && t.tipo !== 'dia') return;
     const quiere = this.d.mundoDeTarea(t);
-    if (quiere && quiere !== E.mundoXR) return; // «de día» / «de noche»: lo dice el texto y la pista
     const con2 = this.d.conDeTarea(t);
     if (!con2.includes(id)) return;
+    if (quiere && quiere !== E.mundoXR) { // «de día» / «de noche»: con quien toca, pero no ahora
+      this.emitir('alPista', { de: 'narrador', reaccion: true, texto: quiere === 'humo' ? 'Eso es de noche: lía uno y fúmatelo para ir al humo.' : 'Eso es de día: toca la ★ de tu muñeca para volver a casa.' });
+      return;
+    }
     T.hablados = T.hablados || [];
     if (!T.hablados.includes(id)) T.hablados.push(id);
     if (con2.every(c => T.hablados.includes(c))) T.cumplida = true;
@@ -510,7 +521,9 @@ export class MotorHistoria {
     const T = a.T;
     T.pendientes = T.pendientes || this.d.recogerDeTarea(a.t);
     const antes = T.pendientes.length;
-    T.pendientes = T.pendientes.filter(r => !((!sala || r.sala === sala) && (!tipo || r.tipo === tipo)));
+    const vale = r => (!sala || r.sala === sala) && (!tipo || r.tipo === tipo);
+    if (tipo) { const k = T.pendientes.findIndex(vale); if (k >= 0) T.pendientes.splice(k, 1); } // una cosa cogida = una
+    else T.pendientes = T.pendientes.filter(r => !vale(r));
     T.hechos = (T.hechos || 0) + (antes - T.pendientes.length);
   }
   // El recado de la tarea se compra en la tienda, al precio del 2D (OBJETOS_RECADO). Sin monchis, la pista lo dice.
@@ -522,6 +535,25 @@ export class MotorHistoria {
       E.monchis -= ob.precio;
     }
     a.T.objeto = k;
+  }
+  // Lo que queda por visitar del objetivo: { salas, con } (recoger: las salas con cosas pendientes; charla: la
+  // gente que falta por hablar y sus salas). Para la guía y el hilo de humo.
+  sitiosPendientes(o) {
+    const a = o && o.accion; if (!a) return { salas: [], con: [] };
+    const act = this._tareaActiva(), T = act && act.T;
+    if (o.tipo === 'recoger' && T) {
+      const p = T.pendientes || this.d.recogerDeTarea(act.t);
+      return { salas: [...new Set(p.map(r => r.sala))], con: [], cosas: p };
+    }
+    let con = [].concat(a.con || []);
+    if (T && (o.tipo === 'charla' || o.tipo === 'dia')) con = con.filter(c => !(T.hablados || []).includes(c));
+    const salas = con.length ? [...new Set(con.map(c => CASAS[c]).filter(Boolean))] : [].concat(a.salas || []);
+    return { salas, con };
+  }
+  // Lo que hay que coger en una sala ahora mismo: [{ tipo, sala }].
+  recogerEn(sala) {
+    const act = this._tareaActiva(); if (!act || act.t.tipo !== 'recoger') return [];
+    return (act.T.pendientes || this.d.recogerDeTarea(act.t)).filter(r => r.sala === sala);
   }
   _tareaActiva() {
     const cap = this.cap; if (!cap || !cap.tareas) return null;

@@ -13,6 +13,23 @@ import { prepararAudio, sonido, musica, textura, img, letraLista, fijarAnisotrop
 
 export function estrellasDe(umbrales, puntos) { return umbrales.filter(u => puntos >= u).length; }
 
+// Dónde van las tarjetas del final («Otra vez / Salir»). Por defecto, delante de ti a la altura cómoda (de pie o
+// sentado) y visibles a través de todo. Un minijuego puede decirlo (docs/minijuegos.md):
+//   mod.sitioTarjetas = { d: 0.6, bajo: 0.1 }            → a otra distancia / altura respecto a tus ojos
+//   mod.sitioTarjetas = inst => ({ centro, haciaMi })    → en un sitio concreto (p. ej. fuera de la cabina)
+//   inst.sitioTarjetas() → igual, desde la instancia (si su sitio depende del estado)
+// Devuelve { centro, haciaMi, opciones } para ui.tarjetasEn(textos, centro, haciaMi, alElegir, opciones).
+export function sitioTarjetas(mod, inst, ui) {
+  let s = null;
+  try { s = inst?.sitioTarjetas?.() ?? (typeof mod?.sitioTarjetas === 'function' ? mod.sitioTarjetas(inst) : mod?.sitioTarjetas) ?? null; } catch (e) { console.error('[marco] sitioTarjetas', e); }
+  if (s?.centro) {
+    const haciaMi = s.haciaMi ?? ui._cab.clone().sub(s.centro).setY(0).normalize();
+    return { centro: s.centro, haciaMi, opciones: { encima: s.encima ?? true, fijo: !!s.fijo, tam: s.tam ?? 1 } };
+  }
+  const { centro, haciaMi } = ui.sitioComodo({ d: s?.d ?? 0.45, bajo: s?.bajo ?? 0.25 });
+  return { centro, haciaMi, opciones: { encima: s?.encima ?? true, tam: s?.tam ?? 1 } };
+}
+
 // ---------- página de prueba: minijuego.html?m=pipas ----------
 export async function arrancarPagina() {
   const nombre = new URLSearchParams(location.search).get('m');
@@ -62,9 +79,8 @@ export async function arrancarPagina() {
       ui.cartela(`${mod.titulo}: ${puntos} puntos · ${'★'.repeat(n)}${'☆'.repeat(3 - n)}${linea ? ' · ' + linea : ''}`, 6);
       sonido(n >= 2 ? 'oooh' : 'campanita', { volumen: 0.6 });
       setTimeout(() => {
-        const f = xr.adelante.clone().setY(0).normalize();
-        const c = xr.cabeza.clone().addScaledVector(f, 0.45); c.y = xr.cabeza.y - 0.25;
-        ui.tarjetasEn(['Otra vez', 'Salir'], c, f.clone().negate(), t => { if (t === 'Otra vez') reiniciar(); else xr.sesion?.end(); });
+        const s = sitioTarjetas(mod, inst, ui);
+        ui.tarjetasEn(['Otra vez', 'Salir'], s.centro, s.haciaMi, t => { if (t === 'Otra vez') reiniciar(); else xr.sesion?.end(); }, s.opciones);
       }, 1800);
     },
   };
@@ -76,6 +92,7 @@ export async function arrancarPagina() {
   }
   async function reiniciar() {
     if (inst) { inst.destruir?.(); escena.remove(inst.grupo); }
+    ui.quitarTarjetas(); ui.instruccion(null); ui.distanciaTextos = null;
     M.resultado = null;
     inst = await mod.crear(ctx); escena.add(inst.grupo);
   }

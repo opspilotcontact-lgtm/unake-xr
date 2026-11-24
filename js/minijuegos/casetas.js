@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import { Bocadillo } from '../bocadillo.js';
 import TiroPato from './tiropato.js';
+import { Jugo, fusionar } from './jugo.js';
 
 const CA = {
   limite: 26,          // grados de inclinación a partir de los que se vuelca
@@ -179,6 +180,7 @@ function iconoMartillo(g, x, y, s) {
 // ======================================================================================
 export default {
   clave: 'Casetas', titulo: 'Las casetas de la feria', escala: 'inmersivo', umbrales: [2200, 2550, 2800],
+  ayudas: { gatillo: 'Tocar caseta / coger / disparar', lateral: 'Coger el mazo o el volante', mano: { pellizco: 'Tocar / coger / disparar', puno: 'Coger el mazo o el volante' } },
 
   async crear(ctx) {
     const { xr, fisica, agarre, humo, ui, sonido } = ctx;
@@ -187,6 +189,7 @@ export default {
     const lz = (w, h) => { const l = lienzo(w, h); texturasPropias.push(l.t); return l; };
     const nivel = ctx.nivel ?? 1;
     const dif = 1 + 0.1 * Math.min(nivel - 1, 8);
+    const fx = new Jugo(ctx, grupo);
 
     // ---------- banderas de partida: TODAS aquí («Otra vez» llama a crear de nuevo) ----------
     const est = {
@@ -297,6 +300,7 @@ export default {
       capasFer.forEach(m => m.scale.set(ancho * m.userData.s[0], altoFer * m.userData.s[1], 1));
     }
     vestirFeriante(texFer);
+    { const fer = new Set(); feriante.traverse(o => fer.add(o)); fusionar(escenario, o => !fer.has(o)); } // la feria y la mesa, quietas
     escenario.add(feriante);
     const bocFer = new Bocadillo(); feriante.add(bocFer.malla);
     let ferContento = 0, ferT = 0;
@@ -474,6 +478,14 @@ export default {
       const a = tinta(new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.09, 12), mb('#e8364f')), 0.004);
       a.position.x = s * VOL.medio; a.rotation.z = Math.PI / 2; volante.add(a); return a;
     });
+    // menos llamadas de dibujo: lo que se mueve junto, fusionado por material (las asas cambian de color: fuera)
+    {
+      const fuera = new Set(); for (const r of [rueda, anilloFreno, ...pasajeros.map(p => p.malla), ...asasMalla]) r.traverse(o => fuera.add(o));
+      fusionar(pivote, o => !fuera.has(o));
+      fusionar(rueda);
+      fusionar(volante, o => !fuera.has(o));
+      fusionar(noria, o => !fuera.has(o) && !pivote.getObjectById(o.id) && !volante.getObjectById(o.id));
+    }
     const asaMundo = (s, out = V()) => aMundo(s * VOL.medio, H + VOL.y, VOL.z, out);
 
     function empezarNoria() {
@@ -490,6 +502,11 @@ export default {
       sonido('sting', { volumen: 0.4 });
       dice('noriaIni', true, 2.6);
       ui.instruccion('Coge el volante con las dos manos');
+      // dos manos fantasma cogen las asas y lo inclinan: sube la del lado que cae
+      for (const s of [-1, 1]) {
+        const a = asaMundo(s), arriba = a.clone().add(V(0, 0.07, 0)), abajo = a.clone().add(V(0, -0.07, 0)), fuera = a.clone().add(V(s * 0.06, 0.06, 0.1));
+        fx.demo([{ p: fuera }, { p: a }, { p: a, puno: true }, { p: s < 0 ? arriba : abajo, puno: true }, { p: s < 0 ? abajo : arriba, puno: true }, { p: a, puno: true }], { dur: 3, tramo: 0.45, flecha: false, retraso: 0.5 });
+      }
     }
     function vestir(r, clave, mult = 1) {
       const tex = TEX[clave] || TEX[r.def.tex];
@@ -506,22 +523,24 @@ export default {
         if (!a) continue;
         const m = a.mano;
         const pos = asaMundo(+s, _p);
-        const lejos = !m.activa || m.pos.distanceTo(pos) > 0.32;
+        // con seguimiento de manos: más distancia y más gracia antes de soltar (el pellizco parpadea)
+        const lejos = !m.activa || m.pos.distanceTo(pos) > (m.esMano ? 0.38 : 0.32);
         const suelta = !m.pinza && !m.agarre;
         a.suelta = (suelta || lejos) ? a.suelta + dt : 0;
-        if (a.suelta > 0.35) { N.asas[s] = null; m.vibrar(0.2, 20); }
+        if (a.suelta > (m.esMano ? 0.55 : 0.35)) { N.asas[s] = null; m.vibrar(0.2, 20); }
       }
       for (const m of manos) {
-        if (!m.activa || !(m.empiezaPinza || m.empiezaAgarre)) continue;
+        // con manos vale cerrar la mano antes de llegar al asa
+        if (!m.activa || !(m.empiezaPinza || m.empiezaAgarre || (m.esMano && (m.pinza || m.agarre)))) continue;
         if (Object.values(N.asas).some(a => a?.mano === m)) continue;
-        let mejor = null, md = 0.15;
+        let mejor = null, md = m.esMano ? 0.19 : 0.15;
         for (const s of ['-1', '1']) {
           if (N.asas[s]) continue;
           const d = Math.min(m.pos.distanceTo(asaMundo(+s, _p)), m.punta.distanceTo(_p));
           if (d < md) { md = d; mejor = s; }
         }
         if (mejor) {
-          N.asas[mejor] = { mano: m, por: m.empiezaPinza ? 'pinza' : 'agarre', suelta: 0 };
+          N.asas[mejor] = { mano: m, por: (m.empiezaPinza || (!m.empiezaAgarre && m.pinza && !m.agarre)) ? 'pinza' : 'agarre', suelta: 0 };
           m.vibrar(0.45, 35); sonido('pop', { volumen: 0.25, tono: 1.3 });
           if (!N.empezada) { N.empezada = true; ui.instruccion(null); }
         }
@@ -882,6 +901,9 @@ export default {
       dice('marIni', true, 2.4);
       ui.instruccion('Coge el mazo y golpea cuando la barra esté en lo verde');
       espera(2.3, nuevoGolpe);
+      // la mano fantasma coge el mazo, lo levanta y da un golpe seco en la base
+      { const mango = mazo.position.clone(), base = aMundo(0, padTop, MZ.padZ), alto = base.clone().add(V(0, 0.3, 0.12));
+        fx.demo([{ p: mango.clone().add(V(0, 0.08, 0.06)) }, { p: mango }, { p: mango, puno: true }, { p: alto, puno: true }, { p: base.clone().add(V(0, 0.1, 0.08)), puno: true }, { p: alto, puno: true }], { dur: 3, tramo: 0.45, retraso: 0.4 }); }
     }
     function quitarMazo() {
       if (!cuerpoMazo) return;
@@ -915,12 +937,13 @@ export default {
         cara.prev.copy(c); cara.tiene = true;
         const l = aLocal(c);
         const dentro = Math.hypot(l.x, l.z - MZ.padZ) < MZ.padR + 0.06;
-        if (l.y > padTop + 0.1) cara.armado = true;
-        const toca = dentro && l.y < padTop + 0.015 && cuerpoMazo.cogido;
+        // sentado el brazo tiene poco recorrido: se arma con 7 cm de subida y vale un golpe más corto
+        if (l.y > padTop + 0.07) cara.armado = true;
+        const toca = dentro && l.y < padTop + 0.02 && cuerpoMazo.cogido;
         if (toca && !cara.tocaba) {
           const m = cuerpoMazo.cogido;
           const vBaja = Math.max(-cara.vel.y, -(m.vel?.y ?? 0));
-          if (M.estado === 'corre' && cara.armado && vBaja > 0.35) { cara.armado = false; golpear(false, vBaja, m); }
+          if (M.estado === 'corre' && cara.armado && vBaja > 0.3) { cara.armado = false; golpear(false, vBaja, m); }
           else if (vBaja > 0.3) { sonido('bonk', { volumen: 0.25 }); m.vibrar(0.3, 30); }
         }
         cara.tocaba = toca;
@@ -968,7 +991,7 @@ export default {
       if (est.modo !== 'martillo' || !M || M.estado !== 'corre') return;
       M.estado = 'golpe';
       // fuerza: la velocidad del golpe (llena a ~1,8 m/s); altura = momento de la barra × fuerza
-      const fuerza = tarde ? 0 : clamp((vBaja - 0.3) / 1.5, 0, 1);
+      const fuerza = tarde ? 0 : clamp((vBaja - 0.28) / 1.35, 0, 1); // llena a ~1,6 m/s (sentado se llega)
       const pos = tarde ? 0 : M.pos * (0.4 + 0.6 * fuerza);
       const bell = !tarde && pos >= M.lo;
       const pts = tarde ? 0 : Math.round(300 * Math.pow(Math.max(0, (pos - 0.2) / 0.8), 2)) + (bell ? 100 : 0);
@@ -978,6 +1001,7 @@ export default {
         sonido('golpe', { volumen: 0.8 });
         mano?.vibrar(1, 140);
         bocanadas(V(0, padTop + 0.02, MZ.padZ), 4 + Math.round(fuerza * 6), 0.5, 0.25 + fuerza * 0.5);
+        fx.chispas(aMundo(0, padTop + 0.03, MZ.padZ), fuerza > 0.75 ? '#7ee081' : fuerza > 0.4 ? '#ffd23f' : '#e8364f', 8 + Math.round(fuerza * 20), 0.6 + fuerza);
         M.pieza.anim = { t: 0, sube: 0.15 + pos * 0.45, to: bell ? 1 : Math.max(0.03, pos), campana: bell };
       }
       lona.visible = false;
@@ -992,6 +1016,7 @@ export default {
       sonido('platillo', { volumen: 0.3 });
       M.campanaT = 0;
       bocanadas(V(0, H + MZ.torreAlto + 0.1, MZ.torreZ), 8, 0.95, 0.6);
+      fx.chispas(aMundo(0, H + MZ.torreAlto + 0.1, MZ.torreZ), '#ffd23f', 50, 1.8);
       cuerpoMazo?.cogido?.vibrar(0.8, 200);
       cambiarFeriante(true);
     }
@@ -1089,6 +1114,7 @@ export default {
       sonido('platillo', { volumen: 0.5 });
       ui.cartela(nueva ? '¡FICHA!' : '¡Ficha repetida, mejor marca!', 2);
       est.confeti = 1.2;
+      fx.chispas(aMundo(0, H + 0.35, -0.5), '#ff5fa2', 40, 1.6); fx.chispas(aMundo(0, H + 0.35, -0.5), '#ffd23f', 40, 1.4);
       for (const m of [xr.manos.derecha, xr.manos.izquierda]) if (m.activa) m.vibrar(0.6, 90);
       espera(2.8, () => irTablon());
     }
@@ -1160,6 +1186,7 @@ export default {
       grupo,
       actualizar(dt) {
         est.t += dt;
+        fx.actualizar(dt);
         for (let i = eventos.length - 1; i >= 0; i--) {
           if (eventos[i].t > est.t) continue;
           const e = eventos.splice(i, 1)[0];
@@ -1177,8 +1204,17 @@ export default {
         ferT += dt; ferCarton.position.y = altoFer / 2 + Math.sin(ferT * 3.3) * 0.006; ferCarton.rotation.z = Math.sin(ferT * 2.8) * 0.02;
         bocFer.actualizar(dt, altoFer, xr.cabeza, feriante);
       },
+      // salir a mitad desde cualquier caseta (también desde dentro del tiro): como el cartel «Salir» del tablón
+      abandonar() {
+        if (est.acabado) return;
+        if (tiro) { cerrarTiro(); }
+        N = null; quitarMazo(); M = null;
+        noria.visible = false; martillo.visible = false; hudMalla.visible = false; tablon.visible = true; escenario.visible = true;
+        salir();
+      },
       destruir() {
         est.destruido = true; eventos.length = 0;
+        fx.destruir();
         if (tiro) { const t = tiro; tiro = null; if (t.inst) { try { t.inst.destruir?.(); } catch (e) { console.error(e); } grupo.remove(t.inst.grupo); } }
         quitarMazo();
         ui.instruccion(null);

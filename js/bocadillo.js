@@ -1,6 +1,7 @@
 // Bocadillos de cómic en 3D: globo blanco con tinta negra y piquito, letra Caprasimo, texto a máquina.
 // Flotan sobre la cabeza de quien habla y miran siempre hacia ti. Uno por personaje.
 import * as THREE from 'three';
+import { AJUSTES } from './xr.js';
 
 const W = 768, H = 384, PX_M = 0.0011; // ~85 cm de ancho a tamaño completo
 
@@ -65,7 +66,10 @@ export class Bocadillo {
     if (Math.floor(this.escrito) !== antes) this._pintar();
     this.aparecer = Math.min(1, this.aparecer + dt * 6);
     const salida = Math.min(1, this.vida * 4);
-    const k = easeBack(this.aparecer) * salida * Math.min(0.7, Math.max(0.5, altoCabeza / 1.6)); // ~45-60 cm de ancho
+    // ~45-60 cm de ancho; de lejos crece para que la letra no baje de ~1° (a 3 m, 58 px = 6,4 cm × k)
+    let base = Math.min(0.7, Math.max(0.5, altoCabeza / 1.6));
+    if (camaraPos) base = Math.min(1.3, Math.max(base, 0.27 * this.malla.getWorldPosition(_w).distanceTo(camaraPos)));
+    const k = easeBack(this.aparecer) * salida * base * (AJUSTES.texto || 1);
     this.malla.scale.setScalar(Math.max(0.001, k));
     this.malla.position.set(0, altoCabeza + 0.08 + 0.2 * k, 0.05);
     if (camaraPos) {

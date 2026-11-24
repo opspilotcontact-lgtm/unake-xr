@@ -13,6 +13,7 @@
 // Acompañantes: los que subiste en «La furgo» (localStorage['unake-xr-furgo-acompanantes']); si no, Lasslow y Perico.
 import * as THREE from 'three';
 import { Bocadillo } from '../bocadillo.js';
+import { Jugo } from './jugo.js';
 import { crearCabina, ACOMP, leerAcompanantes, lienzo, envolver, azar, bolsa, clamp, V, TINTA } from './furgo_cabina.js';
 
 const CTL_POR_DEFECTO = ['lasslow', 'perico'];
@@ -82,24 +83,28 @@ const EUSEBIO_CONTROL = [
 
 // ======================================================================================
 export default {
-  clave: 'Control', titulo: 'El control', escala: 'inmersivo', umbrales: [600, 1100, 1700],
+  clave: 'Control', titulo: 'El control', escala: 'inmersivo', tapaElBar: true, umbrales: [600, 1100, 1700],
+  ayudas: { gatillo: 'Contestar / coger gafas, bolsa, manivela', lateral: 'Coger y girar la manivela', mano: { pellizco: 'Tocar respuesta / coger', puno: 'Coger y girar' } },
 
   async crear(ctx) {
     const { xr, ui, sonido } = ctx;
     const grupo = new THREE.Group(); grupo.name = 'minijuego-control';
 
-    const nivel = 1;
+    // el nivel del 2D: una pregunta más por nivel (hasta 4) y un pelín menos de plazo para disimular
+    const nivel = clamp(ctx.nivel ?? 1, 1, 4);
+    const fx = new Jugo(ctx, grupo);
+    const demosVistas = new Set();
     // ---------- banderas de partida: TODAS aquí ----------
     const est = {
       fase: 'cargando', t: 0, sosp: 15, puntos: 0, preg: 0, total: 5 + nivel,
       tiempoQ: 12,   // el 2D da 9,5 s: aquí hay que leer en el aire y moverse
-      plazo: 3.6,    // el 2D da 2,5 s con una tecla: un gesto de verdad pide más
+      plazo: 3.6 - 0.15 * (nivel - 1), // el 2D da 2,5 s con una tecla: un gesto de verdad pide más
       activos: [], programa: [], tq: 0, tPreg: 0, q: null, orden: [], respondida: false, malCD: 0,
       fallos: 0, aciertosTell: 0, acabado: false, destruido: false, quipT: 6, latidoT: 0.5, espera: 0,
       luzT: 0, gafasPuestas: 0, intro: 0, cerca: 0, zoomFijo: false, humoFin: -9, giroSinHumo: false, manoManivela: null,
     };
     const eventos = []; const programar = (seg, fn) => eventos.push({ t: est.t + seg, fn });
-    const guardada = leerAcompanantes();
+    const guardada = leerAcompanantes(ctx);
     const comp = (guardada && guardada.length ? guardada : CTL_POR_DEFECTO).slice();
     const tellsOk = TELL_ORDEN.filter(t => !TELLS[t].quien || comp.includes(TELLS[t].quien));
     const maxSim = comp.length >= 3 ? 2 : 1;
@@ -330,6 +335,23 @@ export default {
       if (tipo === 'risa') { f.r.pose(ACOMP.lasslow.alt); f.r.decir('Ji… ji…', { dur: d }); sonido('risa-fondo', { volumen: 0.3 }); }
       if (tipo === 'pinpin') { f.r.pose('chivato'); f.r.decir('Pin…', { dur: d }); }
       if (tipo === 'comer') { bolsaM.visible = true; bolsaE.enCotine = true; f.r.decir('(mastica)', { dur: d }); }
+      demoTell(tipo, f);
+    }
+    // la primera vez de cada cosa que te delata, la mano fantasma enseña el gesto (sin llegar a tu cara)
+    function demoTell(tipo, f) {
+      if (demosVistas.has(tipo)) return;
+      demosVistas.add(tipo);
+      const ad = xr.adelante.clone(), regazo = xr.cabeza.clone().addScaledVector(ad, 0.38).add(V(0.12, -0.3, 0));
+      const cerca = p => p.clone().addScaledVector(ad, 0.14); // se queda delante: a 5 cm de los ojos no se ve
+      let pasos = null;
+      if (tipo === 'humo') {
+        const c = cab.aMundo(dondeAviso('humo')).add(V(0, -0.05, 0.04));
+        pasos = [{ p: c.clone().add(V(0.05, 0.05, 0.05)) }, { p: c, puno: true }, { p: c.clone().add(V(0, 0.06, -0.04)), puno: true }, { p: c.clone().add(V(0, 0, -0.08)), puno: true }, { p: c.clone().add(V(0, -0.06, -0.04)), puno: true }, { p: c, puno: true }];
+      } else if (tipo === 'ojos') pasos = [{ p: regazo }, { p: cerca(ojosMundo()) }, { p: cerca(ojosMundo()) }];
+      else if (tipo === 'pinpin') pasos = [{ p: regazo }, { p: cerca(xr.boca()), pinza: true }, { p: cerca(xr.boca()), pinza: true }];
+      else if (tipo === 'risa' && f) { const b = f.r.bocaMundo(V()); pasos = [{ p: regazo }, { p: b.clone().lerp(xr.cabeza, 0.25) }, { p: b }]; }
+      else if (tipo === 'comer') { const b = bolsaM.getWorldPosition(V()), g = cab.aMundo(cab.guantera); pasos = [{ p: regazo }, { p: b }, { p: b, puno: true }, { p: g, puno: true }, { p: g }]; }
+      if (pasos) fx.demo(pasos, { dur: Math.min(2.6, est.plazo * 0.75), tramo: 0.45, retraso: 0.1 });
     }
     function quitarAviso(a) {
       const av = avisos[a.tipo]; av.m.visible = false;
@@ -350,8 +372,9 @@ export default {
       const quien = TELLS[a.tipo].quien;
       if (quien) { const f = figuras[quien]; f?.r.decir(ESCAPES[quien].tapado, { dur: 1.2 }); f?.r.empujon(0.2); sonido(a.tipo === 'comer' ? 'fup' : 'plop', { volumen: 0.4 }); }
       if (a.tipo === 'comer') { cab.eusebio('pipas', 1.6); }
+      fx.chispas(cab.aMundo(pos.clone()), rapido ? '#ffd23f' : '#7ee081', rapido ? 28 : 14, rapido ? 1 : 0.6);
       cab.etiqueta(rapido ? `¡Justo! +${g}` : `+${g}`, '#7ee081', pos.add(L(0, 0.06, 0)), 0.2);
-      sonido('campanita', { volumen: 0.3 });
+      sonido('campanita', { volumen: 0.3, tono: 1 + Math.min(6, est.aciertosTell) * 0.05 });
       for (const m of [xr.manos.derecha, xr.manos.izquierda]) m.vibrar(0.6, 50);
     }
     function falla(a) {
@@ -413,9 +436,9 @@ export default {
       // cada delator activo, con su gesto
       for (const a of [...est.activos]) {
         if (a.tipo === 'humo' && (cab.manivela.abierta > 0.55 || cab.manivela.abanico > 0.45)) tapa(a);
-        else if (a.tipo === 'ojos') { for (const m of manos()) if (m.pos.distanceTo(ojosMundo()) < 0.14 && !(est.activos.some(x => x.tipo === 'pinpin') && m.pos.distanceTo(xr.boca()) < m.pos.distanceTo(ojosMundo()))) { tapa(a); break; } }
-        else if (a.tipo === 'risa') { const b = figuras.lasslow.r.bocaMundo(V()); for (const m of manos()) if (m.pos.distanceTo(b) < 0.14 || m.punta.distanceTo(b) < 0.12) { tapa(a); break; } }
-        else if (a.tipo === 'pinpin') { const b = xr.boca(); for (const m of manos()) if ((m.punta.distanceTo(b) < 0.1 || m.pos.distanceTo(b) < 0.11) && !(est.activos.some(x => x.tipo === 'ojos') && m.pos.distanceTo(ojosMundo()) < m.pos.distanceTo(b))) { tapa(a); break; } }
+        else if (a.tipo === 'ojos') { for (const m of manos()) if (m.pos.distanceTo(ojosMundo()) < (m.esMano ? 0.17 : 0.14) &&!(est.activos.some(x => x.tipo === 'pinpin') && m.pos.distanceTo(xr.boca()) < m.pos.distanceTo(ojosMundo()))) { tapa(a); break; } }
+        else if (a.tipo === 'risa') { const b = figuras.lasslow.r.bocaMundo(V()), e = (m) => m.esMano ? 0.03 : 0; for (const m of manos()) if (m.pos.distanceTo(b) < 0.14 + e(m) || m.punta.distanceTo(b) < 0.12 + e(m)) { tapa(a); break; } }
+        else if (a.tipo === 'pinpin') { const b = xr.boca(); for (const m of manos()) if ((m.punta.distanceTo(b) < (m.esMano ? 0.12 : 0.1) || m.pos.distanceTo(b) < (m.esMano ? 0.14 : 0.11)) &&!(est.activos.some(x => x.tipo === 'ojos') && m.pos.distanceTo(ojosMundo()) < m.pos.distanceTo(b))) { tapa(a); break; } }
       }
       // girar la manivela sin que haga falta: el agente se huele algo
       est.malCD = Math.max(0, est.malCD - dt);
@@ -544,9 +567,20 @@ export default {
         // el latido: se acelera con la sospecha
         if ((est.latidoT -= dt) <= 0 && !est.acabado) { est.latidoT = 1.5 - 1.0 * s; sonido('latido', { volumen: 0.12 + 0.55 * s }); }
         pintarPanel();
+        fx.actualizar(dt);
+      },
+      // salir a mitad: arrancas y te vas (sin ganar), con los puntos que lleves
+      abandonar() {
+        if (est.acabado) return;
+        est.acabado = true; est.fase = 'fin';
+        for (const a of [...est.activos]) quitarAviso(a); est.activos = [];
+        for (const c of cartas) c.m.visible = false; barraT.visible = false; humoVal = 0;
+        agenteDice('¿Adónde va? ¡Eh!', 2, true); sonido('bocina', { volumen: 0.4 });
+        ctx.terminar({ puntos: est.puntos, gana: false, linea: 'Arrancas sin despedirte. Eso también se apunta.' });
       },
       destruir() {
         est.destruido = true; eventos.length = 0;
+        fx.destruir();
         ui.quitarTarjetas?.();
         for (const f of Object.values(figuras)) { f.r.callar(); f.r.grupo.parent?.remove(f.r.grupo); }
         for (const t of propias) t.dispose();

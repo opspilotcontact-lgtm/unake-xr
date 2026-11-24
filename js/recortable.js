@@ -70,7 +70,14 @@ export class Recortable {
     this.mirarHacia = null; this.yawBase = 0;
     this.bocadillo = null;
     this._pedida = 0;
+    // vida (24/11): balanceo sobre los pies cuando les das, mecerse en el sitio (más con el colocón),
+    // fijarse en ti cuando te acercas y estirarse a coger el porro
+    this.bal = 0; this.vBal = 0; this.fase = Math.random() * 6.28;
+    this.cerca = false; this._visto = -99; this.prisa = 0; this.pico = 0;
   }
+
+  // cuánto se mece la gente (0-1); lo pone js/reacciones.js según tu colocón
+  static mareo = 0;
 
   // ---------- mundo y poses ----------
   async ponerMundo(mundo, conRebote = true) {
@@ -108,7 +115,7 @@ export class Recortable {
     const cx = (f.w / 2 - f.ax) * k, cy = (f.ay - f.h / 2) * k;
     this.alto = f.ay * k;
     const anchoSombra = Math.min(w * 0.8, 0.7);
-    this.sombra.scale.set(anchoSombra, anchoSombra * 0.45, 1);
+    this.sombra.scale.set(anchoSombra, anchoSombra * 0.45, 1); this._sombraW = anchoSombra;
     this.sombra.visible = !this.enAsiento;
     for (const m of this.capas) { m.material.map = tex; m.material.needsUpdate = true; m.scale.set(w, h, 1); }
     this.frente.position.set(cx, cy, 0);
@@ -119,7 +126,19 @@ export class Recortable {
     this.canto2.position.set(cx, cy, -0.014); this.canto2.scale.set(w * b, h * b, 1);
   }
 
-  empujon(fuerza = 0.15) { this.vRebote += fuerza * 9; }
+  // un empujón fuerte (golpe, risa) también los hace bailar sobre los pies
+  empujon(fuerza = 0.15) {
+    this.vRebote += fuerza * 9;
+    if (fuerza >= 0.28) this.vBal += (Math.random() < 0.5 ? -1 : 1) * fuerza * 2.4;
+  }
+  // tambalearse: dir (Vector3 del mundo, opcional) = hacia dónde le empujan
+  tambalear(fuerza = 0.5, dir = null) {
+    let lado = Math.random() < 0.5 ? -1 : 1;
+    if (dir) { _d.set(1, 0, 0).applyQuaternion(this.pivote.getWorldQuaternion(_q)); lado = dir.dot(_d) >= 0 ? -1 : 1; }
+    this.vBal += lado * fuerza * 3.2; this.vRebote -= fuerza * 1.5;
+  }
+  // coger el porro: se estira hacia ti un instante, rebota y se balancea
+  cogerPase() { this.pico = 1; this.empujon(0.2); this.vBal += (Math.random() < 0.5 ? -1 : 1) * 0.5; }
 
   // ---------- hablar ----------
   decir(texto, { dur = null, color } = {}) {
@@ -154,19 +173,33 @@ export class Recortable {
     const respira = Math.sin(this.t * Math.PI * 2 * this.ritmo) * 0.012;
     const sy = 1 + this.rebote + respira, sx = 1 / Math.sqrt(Math.max(0.3, sy));
     this.cuerpo.scale.set(sx, sy, 1);
-    this.cuerpo.rotation.x += ((this.inclina || 0) * 0.2 - this.cuerpo.rotation.x) * Math.min(1, dt * 6);
+    this.pico = Math.max(0, this.pico - dt * 2.2);
+    this.cuerpo.rotation.x += ((this.inclina || 0) * 0.2 + Math.sin(this.pico * Math.PI) * 0.3 - this.cuerpo.rotation.x) * Math.min(1, dt * 9);
+    // balanceo sobre los pies (muelle poco amortiguado: dos o tres vaivenes) + mecerse en el sitio
+    this.vBal += (-this.bal * 55 - this.vBal * 3.4) * dt; this.bal += this.vBal * dt;
+    this.bal = THREE.MathUtils.clamp(this.bal, -0.45, 0.45);
+    const mece = Math.sin(this.t * 0.85 + this.fase) * (0.008 + Recortable.mareo * 0.04) + Math.sin(this.t * 0.37 + this.fase * 2) * Recortable.mareo * 0.02;
+    this.cuerpo.rotation.z = this.bal + mece;
+    if (this.sombra.visible && this._sombraW) { const s = 1 - Math.max(0, this.rebote) * 0.6 + Math.abs(this.bal) * 0.4; this.sombra.scale.x = this._sombraW * s; this.sombra.scale.y = this._sombraW * 0.45 * s; }
 
-    // se ladea hacia ti, con tope para no ponerse de canto
+    // se ladea hacia ti, con tope para no ponerse de canto; si te acercas, se fija en ti (rebotito y gira rápido)
     const objetivo = this.mirarHacia || camaraPos;
     if (objetivo) {
       const p = this.grupo.getWorldPosition(_v);
+      if (camaraPos) {
+        const d = Math.hypot(camaraPos.x - p.x, camaraPos.z - p.z);
+        if (d < 1.25 && !this.cerca) { this.cerca = true; if (this.t - this._visto > 9) { this._visto = this.t; this.prisa = 1; this.empujon(0.07); } }
+        else if (d > 1.7) this.cerca = false;
+      }
+      this.prisa = Math.max(0, this.prisa - dt);
       const yawMundo = Math.atan2(objetivo.x - p.x, objetivo.z - p.z);
       const padre = this.grupo.getWorldQuaternion(_q);
       _e.setFromQuaternion(padre, 'YXZ');
       let rel = yawMundo - _e.y;
       rel = Math.atan2(Math.sin(rel), Math.cos(rel));
-      rel = THREE.MathUtils.clamp(rel, -this.giroMax, this.giroMax);
-      this.pivote.rotation.y += (rel - this.pivote.rotation.y) * Math.min(1, dt * 3);
+      const tope = this.cerca ? Math.max(this.giroMax, 1.15) : this.giroMax;
+      rel = THREE.MathUtils.clamp(rel, -tope, tope);
+      this.pivote.rotation.y += (rel - this.pivote.rotation.y) * Math.min(1, dt * (this.prisa > 0 ? 7 : 3));
     }
 
     // parpadeo y boca, solo en la pose base (las demás llevan la cara pintada)
@@ -191,4 +224,4 @@ export class Recortable {
     this.bocadillo?.actualizar(dt, this.alto ?? 1, camaraPos, this.grupo);
   }
 }
-const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
+const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _d = new THREE.Vector3();

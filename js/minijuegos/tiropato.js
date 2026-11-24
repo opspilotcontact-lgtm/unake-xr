@@ -21,7 +21,9 @@
 // Puntos como el 2D: filas de 10/20/30, el dorado 100, cada 5 aciertos seguidos sube el multiplicador (hasta x4);
 // Perico y la Pompa no son patos (−150); bono de puntería con 10 tiros o más; noches especiales al azar.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Bocadillo } from '../bocadillo.js';
+import { Jugo, fusionar } from './jugo.js';
 
 const TP = {
   rondas: 3, duracion: 18, cargador: 6, penal: 150,
@@ -103,6 +105,26 @@ function carton(mats, ancho, alto) {
 function matsCarton(tex) {
   return { frente: new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5 }), borde: materialSilueta(PAPEL, tex), canto: materialSilueta(CARTON, tex) };
 }
+// el mismo cartón (dibujo + borde + canto) en UNA malla y UN material: la capa va en el color del vértice
+// (alfa 0 = el dibujo; alfa 1 = color liso con la silueta del dibujo). Un pato = una llamada de dibujo.
+function geoCartonUno() {
+  const capas = [[-0.012, 1.05, 1.04, CARTON, 1], [-0.004, 1.05, 1.04, PAPEL, 1], [0, 1, 1, '#ffffff', 0]];
+  const geos = capas.map(([z, sx, sy, color, a]) => {
+    const g = new THREE.PlaneGeometry(sx, sy); g.translate(0, 0, z);
+    const c = new THREE.Color(color), n = g.attributes.position.count, col = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b, a], i * 4);
+    g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+    return g;
+  });
+  return mergeGeometries(geos, false);
+}
+function matCartonUno(tex) {
+  const m = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, vertexColors: true });
+  // (vColor ya trae el color de la instancia multiplicado: el dorado parpadea con él)
+  m.onBeforeCompile = s => { s.fragmentShader = s.fragmentShader.replace('#include <color_fragment>', '#ifdef USE_COLOR_ALPHA\n\tdiffuseColor.rgb = mix(diffuseColor.rgb * vColor.rgb, vColor.rgb, vColor.a);\n#endif'); };
+  m.customProgramCacheKey = () => 'carton-uno-tp';
+  return m;
+}
 
 // el pato de humo: bocanadas de fx-humo-puff con pico, ojo a media asta y ala, sobre su palo
 function texPato(puff, oro, izquierda) {
@@ -137,6 +159,7 @@ function texPato(puff, oro, izquierda) {
 // ======================================================================================
 export default {
   clave: 'TiroPato', titulo: 'Tiro al pato de humo', escala: 'inmersivo', umbrales: [600, 2200, 2800],
+  ayudas: { gatillo: 'Coger la escopeta / disparar', lateral: 'Dejarla en el mostrador', mano: { pellizco: 'Coger / disparar', puno: 'Dejar la escopeta' } },
 
   async crear(ctx) {
     const { xr, fisica, agarre, humo, ui, sonido } = ctx;
@@ -186,7 +209,10 @@ export default {
       oroD: texPato(puff.image, true, false), oroI: texPato(puff.image, true, true),
     };
     texturasPropias.push(...Object.values(texPatos));
-    const matsPato = Object.fromEntries(Object.entries(texPatos).map(([k, t]) => [k, matsCarton(t)]));
+    const matsPato = Object.fromEntries(Object.entries(texPatos).map(([k, t]) => [k, matCartonUno(t)]));
+    const GEO_PATO = geoCartonUno();
+    const fx = new Jugo(ctx, grupo);
+    const nivel = Math.max(1, ctx.nivel ?? 1);
 
     // ---------- la feria ----------
     const cielo = new THREE.Mesh(new THREE.SphereGeometry(40, 24, 12), mb('#24183f', { side: THREE.BackSide }));
@@ -299,6 +325,8 @@ export default {
       liston.position.set(0, olaTop - 0.16, f.z + 0.09); caseta.add(liston);
       return { ...f, olaTop, zTabla: f.z + 0.095, tex: t };
     });
+    // todo lo quieto de la caseta, junto por material (de ~40 llamadas de dibujo a ~10); las olas se mueven: fuera
+    fusionar(caseta, o => !filas.some(f => f.tex === o.material.map));
 
     // marcador en la pared del fondo
     const marcador = lz(1024, 220);
@@ -385,6 +413,7 @@ export default {
       c.position.set(-0.03, 0.006, -0.035 - i * 0.026); escopeta.add(c); cargador.push(c);
     }
     const BOCA = new THREE.Vector3(0, 0.018, -0.57);
+    fusionar(escopeta, o => o !== corchoBoca && !cargador.includes(o)); // las piezas de madera y metal, en 2-3 mallas
     grupo.add(escopeta);
     const REPOSO = new THREE.Vector3(0.4, H + 0.03, -0.6);
     const reposoPos = aMundo(REPOSO);
@@ -407,24 +436,42 @@ export default {
     // ---------- patos e intrusos ----------
     let patos = [];
     const intrusos = []; // { tipo, r, vivo, x, y, z, vx, vy, t, cae }
-    const velocidad = () => 1 + 0.16 * Math.max(0, est.ronda - 1);
+    // sube por ronda y con el nivel del 2D (las estrellas que ya tienes): hasta un 40 % más rápido
+    const velocidad = () => 1 + 0.16 * Math.max(0, est.ronda - 1) + Math.min(0.4, 0.07 * (nivel - 1));
     const multiplicador = () => Math.min(4, 1 + Math.floor(est.racha / 5));
 
     function nuevoPato(i, oro) {
       const fl = filas[i];
       const w = fl.ancho, h = w * 0.825;
       const clave = (oro ? 'oro' : 'pato') + (fl.dir < 0 ? 'I' : 'D');
-      const mats = oro ? { ...matsPato[clave], frente: matsPato[clave].frente.clone() } : matsPato[clave];
-      const fig = carton(mats, w, h); fig.position.y = h / 2;
+      // el pato no se dibuja solo: `fig` es un hueco y se pinta en la malla instanciada de su tipo (pintarPatos)
+      const mats = { frente: null };
+      const fig = new THREE.Object3D(); fig.scale.set(w, h, 1); fig.position.y = h / 2;
       const piv = new THREE.Group(); piv.add(fig);
       const baseY = fl.olaTop - 0.3 * h;
       piv.position.set(-fl.dir * (W + 0.3), baseY, fl.z);
       caseta.add(piv);
-      const p = { tipo: oro ? 'oro' : 'pato', fila: i, piv, mats, vivo: true, vx: fl.dir * fl.vel * velocidad() * (oro ? 1.55 : 1), fase: Math.random() * 6, baseY, w, h, cae: -1 };
+      const p = { tipo: oro ? 'oro' : 'pato', clave, fig, brillo: 1, fila: i, piv, mats, vivo: true, vx: fl.dir * fl.vel * velocidad() * (oro ? 1.55 : 1), fase: Math.random() * 6, baseY, w, h, cae: -1 };
       patos.push(p);
       if (oro && (est.patos + est.dorados > 0 || est.ronda > 1)) feriantDice('dorado');
     }
-    function quitarPato(p) { caseta.remove(p.piv); if (p.tipo === 'oro') p.mats.frente.dispose(); }
+    function quitarPato(p) { caseta.remove(p.piv); }
+    // todos los patos en 4 mallas instanciadas (pato/oro × hacia un lado/otro): 4 llamadas de dibujo, haya los que haya
+    const instPatos = Object.fromEntries(Object.keys(matsPato).map(k => {
+      const m = new THREE.InstancedMesh(GEO_PATO, matsPato[k], 24); m.count = 0; m.frustumCulled = false;
+      m.setColorAt(0, new THREE.Color(1, 1, 1)); caseta.add(m); return [k, m];
+    }));
+    const _mP = new THREE.Matrix4(), _cb = new THREE.Color();
+    function pintarPatos() {
+      for (const m of Object.values(instPatos)) m.count = 0;
+      for (const p of patos) {
+        const m = instPatos[p.clave]; if (m.count >= 24) continue;
+        p.piv.updateMatrix(); p.fig.updateMatrix();
+        m.setMatrixAt(m.count, _mP.multiplyMatrices(p.piv.matrix, p.fig.matrix));
+        m.setColorAt(m.count, _cb.setScalar(p.brillo)); m.count++;
+      }
+      for (const m of Object.values(instPatos)) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    }
 
     function intruso(tipo) {
       const r = tipo === 'perico' ? perico : pompa;
@@ -478,6 +525,7 @@ export default {
       sumar(gana);
       const centro = new THREE.Vector3(p.piv.position.x, p.baseY + p.h * 0.62, p.piv.position.z);
       etiqueta(`+${gana}`, oro ? '#ffd23f' : '#fff3c4', centro.clone().add(new THREE.Vector3(0, 0.12, 0.05)), oro ? 0.2 : 0.13 + p.fila * 0.005);
+      fx.acierto(aMundo(centro), { color: oro ? '#ffd23f' : ['#5adceb', '#ff5fa2', '#7ee081'][p.fila], sonido: null, fuerte: oro || mult >= 3, n: 14 + mult * 4 });
       sonido('pop', { en: p.piv, volumen: 0.5, tono: 1.4 });
       if (oro) {
         sonido('platillo', { volumen: 0.45 }); vibrarArma(1, 120);
@@ -516,8 +564,16 @@ export default {
 
     // ---------- disparar ----------
     const corchos = []; // cuerpos de física que son corchos
+    const corchosSueltos = new THREE.InstancedMesh(GEO_CORCHO, MAT_CORCHO, 13);
+    corchosSueltos.count = 0; corchosSueltos.frustumCulled = false; grupo.add(corchosSueltos);
+    function pintarCorchosSueltos() {
+      let n = 0;
+      for (const c of corchos) { if (n >= 13) break; c.obj.updateMatrix(); corchosSueltos.setMatrixAt(n++, c.obj.matrix); }
+      corchosSueltos.count = n; corchosSueltos.instanceMatrix.needsUpdate = true;
+    }
     function nuevoCorcho(pos, datos = {}) {
-      const malla = tinta(new THREE.Mesh(GEO_CORCHO, MAT_CORCHO), 0.003);
+      // el cuerpo es un Object3D vacío; se dibujan todos juntos en `corchosSueltos` (una sola llamada de dibujo)
+      const malla = new THREE.Object3D();
       malla.position.copy(pos); grupo.add(malla);
       const c = fisica.anadir(malla, {
         radio: 0.012, rebote: 0.45, roce: 0.6, masa: 0.2, cogible: true,
@@ -528,8 +584,8 @@ export default {
         datos: { corcho: true, vuela: false, tiro: null, prev: pos.clone(), edad: 0, rastro: 0, suelo: 0, ...datos },
       });
       corchos.push(c);
-      // como mucho 18 corchos sueltos: el más viejo se va
-      if (corchos.length > 18) { const viejo = corchos.find(x => !x.cogido); if (viejo) quitarCorcho(viejo); }
+      // como mucho 12 corchos sueltos: el más viejo se va
+      if (corchos.length > 12) { const viejo = corchos.find(x => !x.cogido); if (viejo) quitarCorcho(viejo); }
       return c;
     }
     function quitarCorcho(c) {
@@ -847,7 +903,7 @@ export default {
         p.piv.position.x += p.vx * dt;
         p.piv.position.y = p.baseY + Math.sin(est.t * 5 + p.fase) * 0.008 * viento;
         p.piv.rotation.z = Math.sin(est.t * 3 + p.fase) * 0.06 * viento;
-        if (p.tipo === 'oro') p.mats.frente.color.setScalar(Math.sin(est.t * 22) > 0 ? 1 : 0.72);
+        if (p.tipo === 'oro') p.brillo = Math.sin(est.t * 22) > 0 ? 1 : 0.72;
         if (Math.abs(p.piv.position.x) > W + 0.4) { quitarPato(p); return false; }
         return true;
       });
@@ -907,6 +963,14 @@ export default {
     sonido('sting', { volumen: 0.45 });
     programar(1.2, () => voz(voces.feriante, '¡Pasen y tiren! Coja la escopeta.', 2.2));
     pintarMarcador();
+    // cómo se juega, sin texto: la mano fantasma va a la escopeta, la coge, la sube, apunta y dispara dos veces
+    {
+      const lado = new THREE.Vector3(1, 0, 0).applyQuaternion(qC), fr = new THREE.Vector3(0, 0, -1).applyQuaternion(qC);
+      const inicio = xr.cabeza.clone().addScaledVector(lado, 0.22).addScaledVector(fr, 0.25); inicio.y = xr.cabeza.y - 0.45;
+      const coge = reposoPos.clone(); coge.y += 0.03;
+      const apunta = xr.cabeza.clone().addScaledVector(lado, 0.18).addScaledVector(fr, 0.38); apunta.y = xr.cabeza.y - 0.2;
+      fx.demo([{ p: inicio }, { p: coge }, { p: coge, pinza: true }, { p: apunta, pinza: true }, { p: apunta }, { p: apunta, pinza: true }, { p: apunta }, { p: apunta, pinza: true }], { dur: 3.2, tramo: 0.42 });
+    }
 
     // para el bot (herramientas/pruebas/bots/tiropato.js)
     const api = {
@@ -961,9 +1025,19 @@ export default {
           if (e.vida <= 0) { caseta.remove(e.s); e.s.material.map.dispose(); e.s.material.dispose(); etiquetas.splice(i, 1); }
         }
         pintarMarcador();
+        pintarCorchosSueltos();
+        pintarPatos();
+        fx.actualizar(dt);
+      },
+      // salir a mitad: se acaba con lo que lleves (sin ganar)
+      abandonar() {
+        if (est.acabado) return;
+        est.acabado = true; est.fase = 'final'; dejar(); ui.instruccion(null);
+        ctx.terminar({ puntos: est.puntos, gana: false, linea: 'Dejas la escopeta en el mostrador. «¿Ya? Pues vale.»' });
       },
       destruir() {
         est.destruido = true; eventos.length = 0;
+        fx.destruir();
         for (const c of [...corchos]) quitarCorcho(c);
         for (const s of saltarines) grupo.remove(s.malla);
         ui.instruccion(null);

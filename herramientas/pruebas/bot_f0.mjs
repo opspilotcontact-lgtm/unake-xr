@@ -15,6 +15,8 @@ pag.on('console', m => {
 pag.on('pageerror', e => errores.push('pageerror: ' + e.message));
 await pag.goto(`http://127.0.0.1:${puerto}/?v=${Date.now()}`);
 await pag.waitForFunction(() => window.__unake?.prueba, null, { timeout: 30000 });
+// que el reloj del bot (30 s por paso) no cuente la carga del puente: con el PC cargado tarda más de 30 s
+await pag.waitForFunction(() => window.__unake.motor, null, { timeout: 120000 });
 
 await pag.evaluate(() => {
   const J = window.__unake, T = J.THREE;

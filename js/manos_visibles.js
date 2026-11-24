@@ -44,7 +44,8 @@ export class ManosVisibles {
     for (const lado of ['izquierda', 'derecha']) {
       const c = document.createElement('canvas'); c.width = 384; c.height = 256;
       const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.08), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthTest: false, opacity: 0 }));
+      // 15 × 10 cm: la letra (28 px de 256) mide ~1,1 cm, ~1,4° a 45 cm (antes 12 × 8, ~1,1°)
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.1), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthTest: false, depthWrite: false, opacity: 0 }));
       m.renderOrder = 50; m.visible = false; this.grupo.add(m);
       this.chuletas[lado] = { c, t, m, texto: '', hasta: 0 };
     }
@@ -108,8 +109,9 @@ export class ManosVisibles {
       }
       this._chuleta(lado, m, ch, cab, dt);
     }
-    for (const x of [this.cap, this.capT]) { x.count = nc; x.instanceMatrix.needsUpdate = true; }
-    for (const x of [this.esf, this.esfT]) { x.count = ne; x.instanceMatrix.needsUpdate = true; }
+    // sin piezas (sin manos, o de día con tus manos reales) no se dibujan: ni llamada ni subida de matrices
+    for (const x of [this.cap, this.capT]) { x.count = nc; x.visible = nc > 0; if (nc) x.instanceMatrix.needsUpdate = true; }
+    for (const x of [this.esf, this.esfT]) { x.count = ne; x.visible = ne > 0; if (ne) x.instanceMatrix.needsUpdate = true; }
   }
 
   _chuleta(lado, m, ch, cab, dt) {
@@ -122,7 +124,13 @@ export class ManosVisibles {
     const lineas = this._lineas(lado, m.esMano);
     const texto = lineas.map(l => l.join('|')).join('/');
     if (texto !== ch.texto) { ch.texto = texto; pintar(ch, lineas); }
-    ch.m.position.copy(m.pos).add(_v.set(0, 0.1, 0));
+    // encima de la mano y un poco hacia fuera (a tu izquierda la izquierda, a tu derecha la derecha): no tapa lo
+    // que tienes entre manos ni lo que tocas delante
+    const fuera = _m.set(-this.xr.adelante.z, 0, this.xr.adelante.x); // derecha de la mirada, en horizontal
+    if (fuera.lengthSq() < 1e-4) fuera.set(1, 0, 0);
+    fuera.normalize().multiplyScalar(lado === 'izquierda' ? -0.05 : 0.05);
+    ch.m.position.copy(m.pos).add(fuera); ch.m.position.y += 0.12;
+    ch.m.scale.setScalar(THREE.MathUtils.clamp(this.xr.ajustes?.texto || 1, 0.8, 1.6));
     ch.m.lookAt(cab);
   }
   _lineas(lado, esMano) {
