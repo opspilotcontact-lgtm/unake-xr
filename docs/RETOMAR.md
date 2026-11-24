@@ -118,5 +118,5 @@ Pendientes técnicos que pidieron los agentes:
 ## 10. Prompt para pegar al volver
 
 ```
-Retoma UNAKÉ XR: lee Documents/GitHub/unake-xr/docs/RETOMAR.md y sigue su sección 5 en orden (lo primero, lo que haya salido al probar en la Quest). Usa subagentes medidos como en la sección 7. Publica en main solo lo que pase bot_f0.mjs sin errores.
+Retoma UNAKÉ XR: lee Documents/GitHub/unake-xr/docs/PLAN-MAESTRO.md (manda sobre todo), luego docs/RETOMAR.md y VOPPE SERIE/07_juego/criterio.md. Te paso mis respuestas a las decisiones del §9 del plan. Arranca la F0 con agentes medidos (dueños de archivos sin solapes) y publica en main solo lo que pase la batería del §7.
 ```

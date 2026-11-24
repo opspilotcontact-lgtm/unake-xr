@@ -1,5 +1,6 @@
 # UNAKÉ XR · plan del port a realidad virtual y mixta
 
+> **Antes que nada: `docs/PLAN-MAESTRO.md` (24/11 noche) manda sobre este plan en todo lo que sea calidad del conjunto.**
 > **Retomar leyendo esto.** Juego: UNAKÉ (VOPPË), port del juego web en Phaser (`base/`, COPIA de `VOPPE SERIE/07_juego/web`) a WebXR para **Meta Quest 3S**.
 > Regla de oro: **nunca se toca `base/` ni nada de `VOPPE SERIE`** (los scripts de `herramientas/` leen la serie en solo lectura).
 > Criterio del juego: `base/../` → el original vive en `VOPPE SERIE/07_juego/criterio.md`. Todo agente lo lee antes de empezar.
