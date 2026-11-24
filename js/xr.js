@@ -31,7 +31,7 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
   let planos = [], cadaPlanos = 0;
   // locomoción con joystick (solo cuando se activa: en el humo). Se desplaza el ESPACIO DE REFERENCIA,
   // nunca la cámara: stick izquierdo = andar hacia donde miras; stick derecho = giro a saltos de 30°.
-  let refBase = null, movil = false, giroEspera = 0;
+  let refBase = null, movil = false, pausa = false, giroEspera = 0;
   const VEL = 1.5, GIRO = Math.PI / 6;
   const movimiento = { velocidad: 0 };
 
@@ -71,6 +71,14 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
       const j = n => { const e = fuente.hand.get(n); return e ? frame.getJointPose(e, ref) : null; };
       const palma = j('middle-finger-metacarpal') || j('wrist'), indice = j('index-finger-tip'), pulgar = j('thumb-tip'), muneca = j('wrist');
       if (!palma || !indice || !pulgar) return;
+      // las 25 articulaciones, para dibujar la mano (js/manos_visibles.js)
+      if (!m.juntas) m.juntas = new Map();
+      for (const [nombre, espacio] of fuente.hand) {
+        const p = frame.getJointPose(espacio, ref);
+        if (!p) continue;
+        let v = m.juntas.get(nombre); if (!v) m.juntas.set(nombre, v = new THREE.Vector3());
+        v.copy(p.transform.position);
+      }
       m.pos.copy(palma.transform.position); m.quat.copy(palma.transform.orientation);
       m.punta.copy(indice.transform.position);
       const d = _a.copy(indice.transform.position).distanceTo(_b.copy(pulgar.transform.position));
@@ -117,7 +125,7 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
       } else m._tienePrev = false;
       m.grupo.visible = m.activa;
     }
-    if (movil) moverConMandos(dt);
+    if (movil && !pausa) moverConMandos(dt);
     cadaPlanos -= dt;
     if (cadaPlanos <= 0 && frame.detectedPlanes) { cadaPlanos = 0.5; planos = leerPlanos(frame); }
   }
@@ -216,6 +224,8 @@ export function montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso })
     get planos() { return planos; },
     paredDelante, mesaCerca, movimiento,
     // activar el joystick (en el humo) o volver a tu sitio real (de día: la casa tiene que cuadrar con la realidad)
+    // dejar de andar un rato (p. ej. usando la palanca de la máquina) SIN volver a tu sitio real
+    pausarMovimiento(si) { pausa = !!si; if (pausa) movimiento.velocidad = 0; },
     permitirMovimiento(si) {
       movil = !!si;
       if (!si && refBase && ref !== refBase) { ref = refBase; renderer.xr.setReferenceSpace(refBase); }

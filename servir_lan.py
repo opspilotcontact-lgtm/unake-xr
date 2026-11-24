@@ -3,6 +3,8 @@
 #       python servir_lan.py --local    → http://127.0.0.1:18765 (desarrollo en el PC, sin caché)
 # La primera vez genera un certificado autofirmado en .cert/ (en las Quest: «Avanzado» → «Continuar»).
 import http.server, functools, ssl, socket, subprocess, pathlib, sys
+# el puente pide ~30 archivos a la vez: con la cola por defecto (5), Windows rechaza conexiones si va cargado
+http.server.ThreadingHTTPServer.request_queue_size = 128
 
 try:
     sys.stdout.reconfigure(encoding='utf-8')  # consola de Windows

@@ -22,7 +22,9 @@ import { cargarDatos, CLAVE_PARTIDA } from './datos.js';
 export { CLAVE_PARTIDA };
 
 // ---------- lo que hay hoy en el XR ----------
-export const NATIVOS = { Pipas: 'pipas', TiroPato: 'tiropato' };
+// Si un minijuego está en NATIVOS, la historia lo juega en VR aunque también esté en la recreativa.
+// En su punto NO: en la Quest iba fatal (24/11); se juega en la máquina.
+export const NATIVOS = { Pipas: 'pipas', TiroPato: 'tiropato', Cuentas: 'cuentas', Casetas: 'casetas', Amarillo: 'amarillo', Furgo: 'furgo', Control: 'control' };
 // Copia de JUEGOS_2D (js/recreativa.js); la prueba historia.mjs comprueba que coinciden.
 export const RECREATIVA = ['Cuentas', 'Tarta', 'Barra', 'Lasslow', 'Periquito', 'Inspeccion', 'Aires', 'Palo', 'Sigilo',
   'Escucha', 'Rendija', 'Compostura', 'EnSuPunto', 'Rescate', 'Blancazo', 'Farol', 'Mirando', 'Tormenta', 'Recuerdo',
@@ -37,8 +39,8 @@ const PISTA_MS = 180000; // TAREA_PISTA_MS del 2D
 // clave `${capId}#${índice}`. como: gafas (lo hace el XR o el motor) · nativo · recreativa (puente) · barrio (entrar en
 // la sala) · equivalente (otro camino que cuenta igual) · pendiente (sin equivalente: ofrece «Seguir la historia»).
 // `cumple(s)` se suma al `hecho()` del 2D (basta uno de los dos). `accion`: el botón del objetivo.
-const rec = clave => ({ como: 'recreativa', accion: { tipo: 'recreativa', clave } });
 const nat = clave => ({ como: 'nativo', accion: { tipo: 'nativo', id: NATIVOS[clave], clave } });
+const rec = clave => NATIVOS[clave] ? nat(clave) : { como: 'recreativa', accion: { tipo: 'recreativa', clave } };
 const hucha = meta => ({ como: 'gafas', accion: { tipo: 'hucha', meta }, ayuda: 'Aporta tus monchis a la hucha de Blancaso' });
 export const EQUIV_OBJETIVOS = {
   'una-que#0': { como: 'equivalente', ayuda: 'Aún no hay encargos de la tienda: gana monchis en cualquier minijuego', cumple: s => s.stat('victorias') >= 1 || s.stat('entregas') >= 1, accion: { tipo: 'menu' } },
