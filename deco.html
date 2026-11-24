@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<title>UNAKÉ XR · decoración 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1426; color: #fff3e6; font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #info { position: fixed; left: 10px; top: 10px; font-size: 13px; background: rgba(20,12,28,.7); padding: 6px 10px; border-radius: 6px; pointer-events: none; white-space: pre; }
+  body.fotos #info { display: none; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<div id="info"></div>
+<script type="module">
+  // Banco de pruebas de js/barrio/deco3d.js: deco.html?sala=cocina&mundo=humo[&fotos][&sin] (sala=bar → el bar del humo)
+  // Ratón: arrastra para mirar; WASD para moverte; D alterna la decoración.
+  import * as THREE from 'three';
+  const q = new URLSearchParams(location.search), v = q.get('v') || Date.now();
+  const [{ construirSala }, { mundoDe }, { decorar }, { Portales }, { montarUnake }] = await Promise.all([
+    import('./js/barrio/proyeccion.js?v=' + v), import('./js/barrio/salas.js?v=' + v), import('./js/barrio/deco3d.js?v=' + v),
+    import('./js/barrio/portales.js?v=' + v), import('./js/decorado.js?v=' + v),
+  ]);
+  if (q.has('fotos')) document.body.classList.add('fotos');
+  const lienzo = document.getElementById('lienzo');
+  const renderer = new THREE.WebGLRenderer({ canvas: lienzo, antialias: true });
+  renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
+  const escena = new THREE.Scene(); escena.background = new THREE.Color('#1a1426');
+  const camara = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 80);
+  camara.rotation.order = 'YXZ'; camara.position.set(0, 1.6, 0);
+  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camara.aspect = innerWidth / innerHeight; camara.updateProjectionMatrix(); });
+
+  const estado = { sala: null, deco: null, portales: new Portales(), marcas: null, id: null, mundo: null };
+  async function montar(id, mundo) {
+    if (estado.deco) estado.deco.quitar();
+    if (estado.sala) { escena.remove(estado.sala.grupo); estado.portales.quitar(); }
+    if (estado.marcas) { escena.remove(estado.marcas); estado.marcas = null; }
+    let sala;
+    if (id === 'bar') {
+      sala = await montarUnake();
+      // la recreativa (de otro módulo): una caja de referencia donde va
+      const maq = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.8, 0.6), new THREE.MeshBasicMaterial({ color: '#2a2440' }));
+      maq.position.set(-1.9, 0.9, -0.9); sala.grupo.add(maq);
+    } else {
+      sala = await construirSala(mundoDe(id, mundo));
+      estado.portales.montar(sala.grupo, sala.medidas, id);
+      // dónde pisa la gente (anillos magenta)
+      const marcas = new THREE.Group();
+      for (const [, s] of Object.entries(sala.def.sitios || {})) {
+        const p = sala.sueloDe(s[0], s[1]);
+        const r = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.36, 24), new THREE.MeshBasicMaterial({ color: '#ff00ff', side: THREE.DoubleSide }));
+        r.rotation.x = -Math.PI / 2; r.position.copy(p).setY(0.02 + (s[2] || 0)); marcas.add(r);
+      }
+      sala.grupo.add(marcas); estado.marcas = marcas;
+    }
+    escena.add(sala.grupo); sala.actualizarProyector();
+    const t0 = performance.now();
+    const deco = await decorar(id, mundo, sala, { THREE });
+    const ms = performance.now() - t0;
+    sala.grupo.add(deco.grupo);
+    Object.assign(estado, { sala, deco, id, mundo, ms });
+    if (deco.avisos.length) console.warn('[deco] ' + id + '/' + mundo + ': ' + deco.avisos.join(' · '));
+    return medir();
+  }
+  // draw calls de la sala sola y con la decoración
+  function medir() {
+    const { deco } = estado;
+    deco.grupo.visible = false; renderer.render(escena, camara); const sin = renderer.info.render.calls;
+    deco.grupo.visible = true; renderer.render(escena, camara); const con = renderer.info.render.calls;
+    const tris = renderer.info.render.triangles;
+    return { sala: estado.id, mundo: estado.mundo, llamadasSala: sin, llamadasTotal: con, llamadasDeco: con - sin, mallasDeco: deco.llamadas, triangulos: tris, montarMs: Math.round(estado.ms), avisos: deco.avisos };
+  }
+
+  // ratón y teclado
+  let yaw = 0, pitch = -0.08, arr = null;
+  lienzo.addEventListener('pointerdown', e => { arr = [e.clientX, e.clientY]; });
+  addEventListener('pointerup', () => { arr = null; });
+  addEventListener('pointermove', e => { if (!arr) return; yaw += (e.clientX - arr[0]) * 0.004; pitch = THREE.MathUtils.clamp(pitch + (e.clientY - arr[1]) * 0.004, -1.4, 1.4); arr = [e.clientX, e.clientY]; });
+  const teclas = new Set();
+  addEventListener('keydown', e => { teclas.add(e.key.toLowerCase()); if (e.key === 'd' && e.shiftKey) estado.deco.grupo.visible = !estado.deco.grupo.visible; });
+  addEventListener('keyup', e => teclas.delete(e.key.toLowerCase()));
+
+  const reloj = new THREE.Clock();
+  let tFijo = null;
+  renderer.setAnimationLoop(() => {
+    const dt = Math.min(reloj.getDelta(), 0.05);
+    const f = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), l = new THREE.Vector3(-f.z, 0, f.x);
+    if (teclas.has('w')) camara.position.addScaledVector(f, dt * 1.2); if (teclas.has('s')) camara.position.addScaledVector(f, -dt * 1.2);
+    if (teclas.has('a')) camara.position.addScaledVector(l, -dt * 1.2); if (teclas.has('d') && !teclas.has('shift')) camara.position.addScaledVector(l, dt * 1.2);
+    camara.rotation.set(pitch, yaw, 0);
+    if (estado.deco) estado.deco.actualizar(dt, tFijo ?? reloj.elapsedTime, camara.position);
+    renderer.render(escena, camara);
+    if (!q.has('fotos') && estado.deco) document.getElementById('info').textContent = `${estado.id} · ${estado.mundo} · llamadas ${renderer.info.render.calls}\n${estado.deco.avisos.join('\n')}`;
+  });
+
+  window.__deco = {
+    montar, medir,
+    // mirar desde (x, y, z) con giro yaw (+ = a la izquierda) e inclinación pitch
+    mirar(x, y, z, yw, pt) { camara.position.set(x, y, z); yaw = yw; pitch = pt; },
+    tiempo(t) { tFijo = t; },
+    listo: false,
+  };
+  await montar(q.get('sala') || 'cocina', q.get('mundo') || 'humo');
+  window.__deco.listo = true;
+</script>
+</body>
+</html>

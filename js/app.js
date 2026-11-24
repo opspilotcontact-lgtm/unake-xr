@@ -18,6 +18,7 @@ import { Portales } from './barrio/portales.js';
 import { Encargos, nombreDe } from './barrio/encargos.js';
 import { Tienda } from './barrio/tienda.js';
 import { Hucha } from './barrio/hucha.js';
+import { decorar } from './barrio/deco3d.js';
 import { Fisica, Agarre } from './fisica.js';
 import { Viaje } from './viaje.js';
 import { Recreativa } from './recreativa.js';
@@ -825,6 +826,8 @@ async function entrarSala(id) {
     ui.quitarTarjetas(); sonido('whoosh', { volumen: 0.6 });
     const nueva = await salaMontada(id);
     const def = M.mundoDe(id, J.mundo), gente = [];
+    // la decoración 3D de la sala (se crea nueva en cada entrada: las salas van en caché)
+    let deco = null; try { deco = await decorar(id, J.mundo, nueva, { THREE }); } catch (e) { console.error('[deco]', id, e); }
     for (const [quien, casa] of Object.entries(M.CASAS)) {
       if (casa !== id || (J.mundo !== 'humo' && M.SOLO_HUMO.includes(quien)) || !def.sitios?.[quien]) continue;
       try { const r = await Recortable.crear(quien, J.mundo); r.userData = { local: nueva.sueloDe(def.sitios[quien][0], def.sitios[quien][1]) }; gente.push(r); } catch { /* sin dibujo */ }
@@ -841,6 +844,7 @@ async function entrarSala(id) {
       nueva.grupo.position.copy(xr.cabeza).setY(0);
       nueva.grupo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), f);
       escena.add(nueva.grupo); nueva.actualizarProyector();
+      B.deco?.quitar(); B.deco = deco; if (deco) nueva.grupo.add(deco.grupo);
       if (portales.metas?.includes(id)) portales.guia(null); // has llegado a donde te llevaba el humo
       portales.montar(nueva.grupo, nueva.medidas, id);
       if (id === 'tienda') encargos.montarTablon(nueva.grupo, new THREE.Vector3(Math.max((nueva.medidas?.xl ?? -2) + 0.35, -1.7), 0, -1.1));
@@ -982,6 +986,7 @@ function salirSala(aMaqueta) {
     if (B.sala) escena.remove(B.sala.grupo);
     for (const r of B.gente) escena.remove(r.grupo);
     B.sala = null; B.salaId = null; B.gente = []; portales.quitar(); encargos.quitarTablon(); quitarCosasSala();
+    B.deco?.quitar(); B.deco = null;
     restaurarMundo();
     if (aMaqueta) ponerMaqueta(); else cerrarBarrio(true);
     B.ocupado = false;
@@ -1003,7 +1008,8 @@ function restaurarMundo() {
 }
 // Unaké (el bar del humo) es la sala «dentro» del barrio: sus puertas llevan a la calle y a la cocina
 // (las de los lados, más al fondo que la máquina, que está en z = −0,9)
-function montarPuertasUnake() { portales.montar(unake.grupo, unake.medidas, 'dentro', { zLado: -2.3 }); }
+function montarPuertasUnake() {
+  if (!J.decoBar && !J._decoBarPidiendo) { J._decoBarPidiendo = true; decorar('bar', 'humo', unake, { THREE }).then(d => { J.decoBar = d; unake.grupo.add(d.grupo); }).catch(e => console.error('[deco] bar', e)); } portales.montar(unake.grupo, unake.medidas, 'dentro', { zLado: -2.3 }); }
 // ir andando a una sala desde Unaké (sin maqueta)
 async function irASala(id) {
   if (B.ocupado || J.transicion) return;
@@ -1030,7 +1036,7 @@ function pasoPuertas(dt, ms) {
 }
 function cerrarBarrio(yaRestaurado = false) {
   if (B.sala) { escena.remove(B.sala.grupo); for (const r of B.gente) escena.remove(r.grupo); B.sala = null; B.salaId = null; B.gente = []; }
-  quitarCosasSala(); encargos.quitarTablon();
+  quitarCosasSala(); encargos.quitarTablon(); B.deco?.quitar(); B.deco = null;
   if (portales.metas?.includes('dentro')) portales.guia(null); // ya estás en el bar
   if (J.mundo === 'humo') montarPuertasUnake(); else portales.quitar();
   if (!yaRestaurado) restaurarMundo();
@@ -1109,6 +1115,8 @@ function director(dt) {
   xr.pausarMovimiento?.(!!recreativa?.enUso);
   if (!recreativa?.enUso) { pasoPuertas(dt, ms); pasoGente(dt, ms); }
   pasoEncargos(dt, ms);
+  if (B.deco && B.sala) B.deco.actualizar(dt, J.t, xr.cabeza);
+  if (J.decoBar && unake?.grupo.visible) J.decoBar.actualizar(dt, J.t, xr.cabeza);
   // tienda y hucha: solo cuando su montar() (asíncrono) ha terminado
   if (J.fase === 'barrio' && !J.charla) { if (B.tienda?.lista) B.tienda.actualizar(dt, ms); if (B.hucha?.lista) B.hucha.actualizar(dt, ms); }
   if (J.fase === 'barrio') { if (B.maqueta?.grupo.visible) B.maqueta.actualizar(dt, ms, cab); for (const r of B.gente) r.actualizar(dt, cab); }
