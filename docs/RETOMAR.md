@@ -64,17 +64,18 @@ Nada a medias: todo lo de la tabla está en main.
 5. **Sistemas**: negocio, apuestas, encargos, situaciones con recogida, armario, logros, noches.
 6. **Cine**: intro, final, círculo, cuenta.
 
-## 6. Cuenta de lo que queda (24/11 tarde)
+## 6. Cuenta de lo que queda (24/11 noche, tras la ola de 10 agentes)
 
-Decisión del fundador (24/11): **no todo a nativo**; solo lo que mejor se adapta. El resto, en la máquina física.
+Decisiones del fundador (24/11): no todo a nativo, pero que el mundo sea **vivo y jugable** y ordenado como el 2D (dar vueltas o seguir la historia).
 
 | | Hecho | Falta |
 |---|---|---|
-| Minijuegos | 9 nativos + 22 en la máquina | pulir en la Quest |
-| Historia | 17 capítulos, todos jugables en XR | escenas en la Quest, cine |
-| Mundo | puertas entre salas, guía de humo, máquina, manos y chuleta | cosas de cada sala (tienda, hucha, misiones allí) |
-| Sistemas | economía del motor | materiales, negocio, apuestas, encargos, armario, logros |
-| **Total aprox.** | **~55-60 %** | 3-4 sesiones + rondas de prueba en la Quest |
+| Minijuegos | **21 nativos** (Pipas, Tiro, Cuentas, Casetas, Furgo, Control, Amarillo, Barra, Farol, Tarta, Palo, Periquito, Un señor, Sigilo, Mirando, Inspección, Escucha, DJ, Blancazo + Tragaperras y Carreras); 9 en la máquina (Rescate, Aires, Rendija, Compostura, Tormenta, Recuerdo, Cámaras, Recreativa, En su punto) | probar en la Quest y ajustar dificultad/tolerancias |
+| Mundo | cada minijuego en su sitio y con su personaje (`js/barrio/lugares.js`), gente que se mueve y charla (`vida.js`), puertas y guía de humo, encargos, tienda, hucha, negocio (casa de muñecas), cuarto (armario, taller, logros), decoración 3D, sonido ambiente | — |
+| Historia | 17 capítulos, 56 objetivos alcanzables (`docs/objetivos-vr.md`), guía y pistas | escenas actuadas en 3D (hoy viñetas), cine (intro, final, círculo, cuenta) |
+| **Total aprox.** | **~75-80 %** | escenas y cine + rondas de prueba en la Quest |
+
+Cómo se enchufa un nativo nuevo: dejar `js/minijuegos/<id>.js` y su clave en `NATIVO_DE` (`js/barrio/lugares.js`); la historia lo usa sola (`_accionViva` convierte «recreativa» en «nativo» si existe).
 
 ## 7. Cómo encargar a un agente (plantilla probada)
 

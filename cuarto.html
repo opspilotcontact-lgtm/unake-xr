@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>UNAKÉ XR · el cuarto de Vuper</title>
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff3e6; font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  [hidden] { display: none !important; }
+  #portada { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(18,12,31,.86); z-index: 5; }
+  #portada h1 { font-family: 'Caprasimo', serif; font-weight: 400; font-size: 52px; margin: 0; color: #ffd6ea; }
+  #portada button { font-family: 'Caprasimo', serif; font-size: 22px; padding: 12px 22px; border: 3px solid #1a0f24; background: #ffe066; color: #1a0f24; box-shadow: 0 5px 0 #1a0f24; cursor: pointer; }
+  #portada button:disabled { opacity: .4; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","iwer":"https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.module.min.js","@iwer/devui":"https://cdn.jsdelivr.net/npm/@iwer/devui@2.8.0/build/iwer-devui.module.min.js","@iwer/sem":"https://cdn.jsdelivr.net/npm/@iwer/sem@2.8.0/build/es-min/index.min.js"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<section id="portada"><h1>El cuarto de Vuper</h1>
+  <div><button id="btnAR" disabled>Entrar</button> <button id="btnVR" disabled>Solo VR</button> <button id="btnPC">Ver en el PC</button></div>
+</section>
+<script type="module">
+  // Prueba suelta de js/barrio/cuarto.js. Por defecto, con un motor FALSO (la misma forma que js/historia/motor.js:
+  // E, monchis, guardar(), sumar(), emitir(), comprarInvento(id), d.INVENTOS, d.MISIONES y d.puente.ev() con lo del
+  // 2D que el cuarto lee: ARMARIO, armario(), prendaAbierta(), actoDePrenda(), LOGROS). Con ?real, el motor de verdad
+  // (puente con el 2D entero; partida nueva con monchis y estrellas de prueba).
+  const q = new URLSearchParams(location.search);
+  if (q.has('emular')) await import('./js/emulador.js');
+  const v = q.get('v') ? '?v=' + q.get('v') : '';
+  const THREE = await import('three');
+  const { montarXR } = await import('./js/xr.js' + v);
+  const { UI } = await import('./js/ui.js' + v);
+  const { prepararAudio, sonido, letraLista, fijarAnisotropia } = await import('./js/recursos.js');
+  const { Cuarto } = await import('./js/barrio/cuarto.js' + v);
+  const $ = id => document.getElementById(id);
+
+  // ---------- motor falso (datos copiados del 2D: armario.js, comun.js → INVENTOS y MISIONES, vida.js → LOGROS) ----------
+  const ARMARIO = [
+    { id: 'gorra', nombre: 'Gorra del revés', hueco: 'cabeza', sprite: 'obj-acc-gorra', precio: 450, efecto: '+5 % de monchis', bono: { pago: 0.05 } },
+    { id: 'cascos', nombre: 'Cascos de la Pompa (al cuello)', hueco: 'cabeza', sprite: 'obj-acc-cascos', desde: 'mejor-amigo', precio: 675, efecto: '+8 % de monchis', bono: { pago: 0.08 } },
+    { id: 'chistera', nombre: 'Chistera de señor', hueco: 'cabeza', sprite: 'obj-acc-chistera', desde: 'mejor-amigo', precio: 825, efecto: 'Un señor cobra mejor: +10 %', bono: { pago: 0.1 } },
+    { id: 'corona', nombre: 'Corona de humo', hueco: 'cabeza', sprite: 'obj-acc-corona', desde: 'inspeccion', precio: 1200, efecto: 'Rey de la aso: +15 % de monchis', bono: { pago: 0.15 } },
+    { id: 'gafas', nombre: 'Gafas de neón', hueco: 'ojos', sprite: 'obj-acc-gafas', precio: 600, efecto: 'El colocón dura más', bono: { colocon: -0.15 } },
+    { id: 'antifaz', nombre: 'Antifaz de incógnito', hueco: 'ojos', sprite: 'obj-acc-antifaz', desde: 'furgo', precio: 1050, efecto: 'Monchiman de paisano: colocón y hambre, mejor', bono: { colocon: -0.1, hambre: -0.1 } },
+    { id: 'bufanda', nombre: 'Bufanda de punto', hueco: 'cuello', sprite: 'obj-acc-bufanda', precio: 525, efecto: 'El hambre sube más despacio', bono: { hambre: -0.15 } },
+    { id: 'cadena', nombre: 'Cadena con la M', hueco: 'cuello', sprite: 'obj-acc-cadena', desde: 'furgo', precio: 1200, efecto: '+12 % de monchis', bono: { pago: 0.12 } },
+    { id: 'dorado', nombre: 'Piel dorada', hueco: 'piel', tinte: 0xffd36b, desde: 'mejor-amigo', precio: 900, efecto: 'Brillas: +5 % de monchis', bono: { pago: 0.05 } },
+    { id: 'neon', nombre: 'Piel de neón', hueco: 'piel', tinte: 'neon', desde: 'mejor-amigo', precio: 750, efecto: 'Te ven de lejos. El colocón dura algo más', bono: { colocon: -0.05 } },
+    { id: 'arcoiris', nombre: 'Piel arcoíris', hueco: 'piel', tinte: 'arcoiris', desde: 'libre', precio: 2000, efecto: 'Leyenda del barrio: +10 % de monchis', bono: { pago: 0.1 } },
+  ];
+  const INVENTOS = [
+    { id: 'mochila', nombre: 'Mochila térmica', precio: 240, sprite: 'mochila', efecto: 'Encargos: +10 s por entrega' },
+    { id: 'silbato', nombre: 'Silbato antiperico', precio: 300, sprite: 'perico-silbando', efecto: 'Contraseña: una vida más' },
+    { id: 'bandeja', nombre: 'Bandeja ancha', precio: 300, sprite: 'tarta', efecto: 'Tarta: atrapas más fácil' },
+    { id: 'pajarita', nombre: 'Pajarita de señor', precio: 400, sprite: 'pajarita', efecto: 'Un señor: el gas sube más despacio' },
+    { id: 'mascara', nombre: 'Máscara con tiro', precio: 500, sprite: 'monchiman', efecto: 'Rescate: vuelas más rápido' },
+  ];
+  const MIS = { Contrasena: ['La contraseña', 'perico'], Tarta: ['La tarta entera', 'cotine'], Lasslow: ['Un señor', 'lasslow-digno'], Rescate: ['¡Que no cunda el amarillo!', 'monchiman'], Blancazo: ['El blancazo', 'puky-eructo'], Barra: ['Noche de barra', 'palicaso'], Pipas: ['La apuesta de pipas', 'perico-pipas'], DJ: ['La Pompa pincha', 'pompa'], Cuentas: ['La caja no cuadra', 'blancaso'], Farol: ['El farol', 'palicaso-contando'], Periquito: ['¡Periquito!', 'perico-cotilleando'], Inspeccion: ['La inspección', 'obj-llave'], Aires: ['Por los aires', 'lasslow-pedo'], Palo: ['El palo', 'cotine-plop'], Sigilo: ['Los discos de la Pompa', 'pompa-mira'], Camaras: ['Las cámaras de Unaké', 'obj-lupa'], Tormenta: ['La tormenta', 'n-madre-enfadada'], TiroPato: ['Tiro al pato de humo', 'feriante'], Mirando: ['Te están mirando', 'miron'], Casetas: ['Las casetas de la feria', 'feriante'], Recuerdo: ['El recuerdo', 'vuper-colocado'], Recreativa: ['¡Que no cunda el amarillo! · La recreativa', 'monchiman'], Amarillo: ['Tu propio amarillo', 'monchiman'], Reparto: ['Encargos de la tienda', 'vuper-reparto'] };
+  const MISIONES = Object.fromEntries(Object.entries(MIS).map(([k, [nombre, sprite]]) => [k, { nombre, sprite, umbrales: [1, 2, 3] }]));
+  const LOGROS = Array.from({ length: 23 }, (_, i) => ({ id: 'l' + i }));
+  const E = { monchis: 1000, capitulo: 8, stats: {}, inventos: { mochila: true }, estrellas: { Tarta: 3, Pipas: 2, Cuentas: 1, Contrasena: 3 }, records: { Tarta: 1950, Pipas: 1200, Cuentas: 1500, Contrasena: 420 }, niveles: { Tarta: 4, Pipas: 3 }, logros: { l0: 1, l3: 1, l7: 1 }, corchoVisto: { Tarta: 3, Contrasena: 3 } };
+  const ABIERTOS = ['mejor-amigo']; // capítulo del acto II en curso
+  const G = {
+    ARMARIO, LOGROS,
+    armario: () => { E.armario = E.armario || { tiene: {}, puesto: {} }; E.armario.vista = E.armario.vista || {}; return E.armario; },
+    prendaAbierta: p => !p.desde || ABIERTOS.includes(p.desde),
+    actoDePrenda: p => p.desde === 'libre' ? 'Tras el final' : !p.desde ? 'I' : p.desde === 'mejor-amigo' ? 'II' : p.desde === 'furgo' ? 'III' : 'IV',
+  };
+  let motor;
+  if (q.has('real')) {
+    const { MotorHistoria } = await import('./js/historia/motor.js' + v);
+    motor = await MotorHistoria.crear({ nueva: true });
+    Object.assign(motor.E, { monchis: 1000, estrellas: { ...E.estrellas }, records: { ...E.records }, corchoVisto: { ...E.corchoVisto } });
+    motor.E.inventos.mochila = true;
+  } else {
+    motor = {
+      E, d: { INVENTOS, MISIONES, puente: { ev: n => { if (!(n in G)) throw new ReferenceError(n + ' is not defined'); return G[n]; } } },
+      get monchis() { return E.monchis; }, guardados: 0, cambios: [],
+      guardar() { this.guardados++; }, sumar(k, n = 1) { E.stats[k] = (E.stats[k] || 0) + n; }, emitir(n, d) { this.cambios.push(d?.tipo); },
+      comprarInvento(id) {
+        const iv = INVENTOS.find(i => i.id === id);
+        if (!iv || E.inventos[iv.id]) return { ok: false };
+        if (E.monchis < iv.precio) return { ok: false, motivo: 'sin monchis', faltan: iv.precio - E.monchis };
+        E.monchis -= iv.precio; E.inventos[iv.id] = true; return { ok: true, invento: iv.id };
+      },
+    };
+  }
+
+  // ---------- escena de prueba ----------
+  const renderer = new THREE.WebGLRenderer({ canvas: $('lienzo'), antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.xr.enabled = true;
+  fijarAnisotropia(renderer.capabilities.getMaxAnisotropy());
+  const escena = new THREE.Scene(); escena.background = new THREE.Color('#2c2a48');
+  const camara = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.02, 80); camara.position.set(0, 1.2, 0); escena.add(camara);
+  const oyente = new THREE.AudioListener(); camara.add(oyente);
+  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camara.aspect = innerWidth / innerHeight; camara.updateProjectionMatrix(); });
+  escena.add(new THREE.GridHelper(12, 24, '#6a6a88', '#46445e'));
+  const ui = new UI(escena);
+  const xr = montarXR(renderer, escena, camara, { alEntrar: () => { $('portada').hidden = true; }, alSalir: () => { $('portada').hidden = false; }, aviso: t => console.warn(t) });
+  await letraLista();
+  if (!navigator.xr || q.has('pc')) for (const [m, c] of [[xr.manos.derecha, '#ff5fa2'], [xr.manos.izquierda, '#5fd3ff']]) m.grupo.add(new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 8), new THREE.MeshBasicMaterial({ color: c })));
+
+  // la «sala»: un grupo girado y desplazado, como las del barrio, para probar las coordenadas locales
+  const sala = new THREE.Group(); sala.position.set(0.3, 0, -0.2); sala.rotation.y = 0.4; escena.add(sala);
+  sala.updateMatrixWorld(true);
+  const tu = sala.worldToLocal(new THREE.Vector3(0, 0, 0)), delante = sala.worldToLocal(new THREE.Vector3(0, 0, -1));
+  const cuarto = new Cuarto({ motor, sonido, ui, xr });
+  const T = window.__t = { THREE, motor, cuarto, xr, ui, escena, camara, renderer, sala, t: 0, bot: null, botFin: false, fotoPedida: null, vestidos: [], inventados: [] };
+  cuarto.alVestir = x => T.vestidos.push(x);
+  cuarto.alInventar = x => T.inventados.push(x);
+  await cuarto.montar(sala, tu, delante);
+
+  T.mirar = (x, y, z, yaw = 0, pitch = 0) => { camara.position.set(x, y, z); camara.rotation.set(pitch, yaw, 0, 'YXZ'); };
+  T.arrancarPC = () => { $('portada').hidden = true; };
+  T.llamadas = () => renderer.info.render.calls;
+  T.listo = true;
+  $('btnPC').onclick = () => T.arrancarPC();
+  $('btnAR').onclick = () => { prepararAudio(oyente); xr.entrar('ar'); };
+  $('btnVR').onclick = () => { prepararAudio(oyente); xr.entrar('vr'); };
+  navigator.xr?.isSessionSupported('immersive-ar').then(s => { $('btnAR').disabled = !s; }).catch(() => { });
+  navigator.xr?.isSessionSupported('immersive-vr').then(s => { $('btnVR').disabled = !s; }).catch(() => { });
+
+  const reloj = new THREE.Clock();
+  renderer.setAnimationLoop((t, frame) => {
+    const dt = Math.min(0.05, reloj.getDelta()); T.t += dt;
+    if (xr.sesion) xr.paso(frame, dt);
+    else {
+      xr.cabeza.copy(camara.position); xr.cabezaQ.copy(camara.quaternion); xr.adelante.set(0, 0, -1).applyQuaternion(camara.quaternion);
+      if (T.bot) { try { T.bot(dt, xr.manos); } catch (e) { console.error('bot', e); T.bot = null; } }
+    }
+    const manos = [xr.manos.derecha, xr.manos.izquierda];
+    try {
+      cuarto.actualizar(dt, manos);
+      ui.actualizar(dt, xr.cabeza, xr.cabezaQ, manos);
+    } catch (e) { if (!T._err) { T._err = true; console.error('[cuarto]', e); } }
+    renderer.render(escena, camara);
+  });
+</script>
+</body>
+</html>

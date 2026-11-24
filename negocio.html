@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>UNAKÉ XR · el negocio</title>
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff3e6; font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  [hidden] { display: none !important; }
+  #portada { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(18,12,31,.86); z-index: 5; }
+  #portada h1 { font-family: 'Caprasimo', serif; font-weight: 400; font-size: 52px; margin: 0; color: #ffd6ea; }
+  #portada button { font-family: 'Caprasimo', serif; font-size: 22px; padding: 12px 22px; border: 3px solid #1a0f24; background: #ffe066; color: #1a0f24; box-shadow: 0 5px 0 #1a0f24; cursor: pointer; }
+  #portada button:disabled { opacity: .4; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","iwer":"https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.module.min.js","@iwer/devui":"https://cdn.jsdelivr.net/npm/@iwer/devui@2.8.0/build/iwer-devui.module.min.js","@iwer/sem":"https://cdn.jsdelivr.net/npm/@iwer/sem@2.8.0/build/es-min/index.min.js"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<section id="portada"><h1>El negocio de Unaké</h1>
+  <div><button id="btnAR" disabled>Entrar</button> <button id="btnVR" disabled>Solo VR</button> <button id="btnPC">Ver en el PC</button></div>
+</section>
+<script type="module">
+  // Prueba suelta de js/barrio/negocio.js con un motor FALSO: misma API que js/historia/motor.js (negocio(), mejorar(id),
+  // cobrarCaja(), monchis, d.negocio/cuentasNegocio/METAS_NEGOCIO) y las cuentas de base/js/negocio.js (sin salas ni deco).
+  // ?monchis=N (300) · ?max=N nivel máximo del acto (3) · ?caja=N caja inicial (40)
+  const q = new URLSearchParams(location.search);
+  if (q.has('emular')) await import('./js/emulador.js');
+  const v = q.get('v') ? '?v=' + q.get('v') : '';
+  const THREE = await import('three');
+  const { montarXR } = await import('./js/xr.js' + v);
+  const { UI } = await import('./js/ui.js' + v);
+  const { prepararAudio, sonido, letraLista, fijarAnisotropia } = await import('./js/recursos.js');
+  const { Negocio } = await import('./js/barrio/negocio.js' + v);
+  const $ = id => document.getElementById(id);
+
+  // ---------- motor falso (base/js/negocio.js + motor.js → negocio/mejorar/cobrarCaja) ----------
+  const MEJORAS_NEGOCIO = [
+    { id: 'neon', nombre: 'Neón de la puerta', desc: 'Atrae clientela', base: 50 },
+    { id: 'sofas', nombre: 'Sofás nuevos', desc: 'Más aforo: caben más', base: 70 },
+    { id: 'barra', nombre: 'Barra de Palicaso', desc: 'Cada cliente deja más', base: 90 },
+    { id: 'maquina', nombre: 'Máquina de monchis', desc: 'Vende sola y agranda la caja', base: 80 },
+    { id: 'horno', nombre: 'Horno de Cotine', desc: 'Tartas que se venden solas', base: 140 },
+    { id: 'dj', nombre: 'Cabina de la Pompa', desc: 'Música: más clientela', base: 160 },
+    { id: 'bolsitas', nombre: 'Máquina de bolsitas', desc: 'Fabrica lo de la aso para liar', base: 220 },
+  ];
+  const MULT = [1, 1, 1, 2, 3];
+  const RANGOS = [[0, 'Antro'], [5, 'Bareto'], [12, 'Aso de barrio'], [20, 'Local de moda'], [28, 'Leyenda del humo'], [32, 'Templo del humo'], [35, 'Leyenda del barrio']];
+  const METAS_NEGOCIO = [
+    { texto: 'Compra tu primera mejora', hecho: c => c.total >= 1, premio: 20 },
+    { texto: 'Ten 3 clientes a la vez', hecho: c => c.clientes >= 3, premio: 40 },
+    { texto: 'Gana 15 monchis por minuto', hecho: c => c.porMin >= 15, premio: 60 },
+    { texto: 'Todas las mejoras a nivel 1', hecho: c => MEJORAS_NEGOCIO.every(m => c.niv[m.id] >= 1), premio: 100 },
+    { texto: 'Rango «Aso de barrio» (nivel 12)', hecho: c => c.total >= 12, premio: 150 },
+  ];
+  const E = { monchis: +(q.get('monchis') ?? 300), capitulo: 0, inv: { bolsita: 0 }, negocio: { niveles: {}, caja: +(q.get('caja') ?? 40), bolsitas: 0, ultimo: Date.now(), metas: 0, ultimoDia: '' } };
+  let MAX = +(q.get('max') ?? 3);
+  const d = {
+    MEJORAS_NEGOCIO, METAS_NEGOCIO,
+    negocio: () => E.negocio,
+    nivelNegocio: id => E.negocio.niveles[id] || 0,
+    nivelMaxPorCapitulo: () => MAX,
+    precioMejora: m => { const n = d.nivelNegocio(m.id); return Math.round(m.base * Math.pow(1.9, n) * (MULT[n] || 1)); },
+    cuentasNegocio() {
+      const niv = {}; MEJORAS_NEGOCIO.forEach(m => { niv[m.id] = d.nivelNegocio(m.id); });
+      const total = Object.values(niv).reduce((a, b) => a + b, 0);
+      const aforo = 2 + 2 * niv.sofas, atraccion = 1 + 1.6 * niv.neon + 1.2 * niv.dj, clientes = Math.min(aforo, atraccion);
+      const porCliente = 1 + 0.35 * niv.barra, porMin = clientes * porCliente + niv.maquina + niv.horno;
+      const tope = Math.round(Math.max(60, porMin * (45 + 10 * niv.maquina)));
+      return { niv, total, aforo, atraccion, clientes, porCliente, porMin, tope, minPorBolsita: niv.bolsitas ? 24 / niv.bolsitas : 0, rango: RANGOS.filter(([n]) => total >= n).pop()[1] };
+    },
+    actualizarNegocio() {
+      const n = E.negocio, c = d.cuentasNegocio(), ahora = Date.now(), min = Math.max(0, (ahora - n.ultimo) / 60000);
+      n.ultimo = ahora; n.caja = Math.min(c.tope, n.caja + min * c.porMin);
+      if (c.minPorBolsita) n.bolsitas = Math.min(5, n.bolsitas + min / c.minPorBolsita);
+    },
+    rangoSiguiente: total => { const s = RANGOS.find(([n]) => n > total); return s ? `${s[1]} (nivel ${s[0]})` : null; },
+  };
+  const motor = {
+    E, d, cambios: [],
+    get monchis() { return E.monchis; },
+    emitir(t, x) { this.cambios.push(x.tipo); },
+    negocio() {
+      d.actualizarNegocio();
+      const n = d.negocio(), c = d.cuentasNegocio(), max = d.nivelMaxPorCapitulo();
+      return {
+        caja: Math.floor(n.caja), bolsitas: Math.floor(n.bolsitas), rango: c.rango, total: c.total, porMin: c.porMin, siguiente: d.rangoSiguiente(c.total),
+        mejoras: MEJORAS_NEGOCIO.map(m => ({ id: m.id, nombre: m.nombre, desc: m.desc, nivel: d.nivelNegocio(m.id), max, precio: d.precioMejora(m), puede: d.nivelNegocio(m.id) < max && E.monchis >= d.precioMejora(m) })),
+      };
+    },
+    mejorar(id) {
+      const m = MEJORAS_NEGOCIO.find(x => x.id === id);
+      if (!m) return { ok: false, motivo: 'al máximo' };
+      if (d.nivelNegocio(m.id) >= d.nivelMaxPorCapitulo()) return { ok: false, motivo: 'al máximo por ahora' };
+      const precio = d.precioMejora(m);
+      if (E.monchis < precio) return { ok: false, motivo: 'sin monchis', faltan: precio - E.monchis };
+      E.monchis -= precio; const n = d.negocio(); n.niveles[m.id] = d.nivelNegocio(m.id) + 1;
+      const metas = []; let cn = d.cuentasNegocio();
+      while (METAS_NEGOCIO[n.metas] && METAS_NEGOCIO[n.metas].hecho(cn)) { const meta = METAS_NEGOCIO[n.metas]; E.monchis += meta.premio; n.metas++; metas.push(meta); cn = d.cuentasNegocio(); }
+      this.emitir('alCambiar', { tipo: 'negocio' });
+      return { ok: true, mejora: m.id, nivel: d.nivelNegocio(m.id), metas };
+    },
+    cobrarCaja() {
+      d.actualizarNegocio();
+      const n = d.negocio(), m = Math.floor(n.caja), b = Math.floor(n.bolsitas), hoy = new Date().toDateString(), bono = n.ultimoDia !== hoy && m > 0 ? 25 : 0;
+      if (!m && !b) return { ok: false };
+      n.caja -= m; n.bolsitas -= b; if (bono) n.ultimoDia = hoy;
+      E.monchis += m + bono; E.inv.bolsita += b;
+      this.emitir('alCambiar', { tipo: 'caja' });
+      return { ok: true, monchis: m, bolsitas: b, bono };
+    },
+  };
+
+  // ---------- escena de prueba ----------
+  const renderer = new THREE.WebGLRenderer({ canvas: $('lienzo'), antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.xr.enabled = true;
+  fijarAnisotropia(renderer.capabilities.getMaxAnisotropy());
+  const escena = new THREE.Scene(); escena.background = new THREE.Color('#2c2a48');
+  const camara = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.02, 80); camara.position.set(0, 1.2, 0); escena.add(camara);
+  const oyente = new THREE.AudioListener(); camara.add(oyente);
+  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camara.aspect = innerWidth / innerHeight; camara.updateProjectionMatrix(); });
+  escena.add(new THREE.GridHelper(12, 24, '#6a6a88', '#46445e'));
+  const ui = new UI(escena);
+  const xr = montarXR(renderer, escena, camara, { alEntrar: () => { $('portada').hidden = true; }, alSalir: () => { $('portada').hidden = false; }, aviso: t => console.warn(t) });
+  await letraLista();
+  if (!navigator.xr || q.has('pc')) for (const [m, c] of [[xr.manos.derecha, '#ff5fa2'], [xr.manos.izquierda, '#5fd3ff']]) m.grupo.add(new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: c })));
+
+  // la «sala»: un grupo girado y desplazado, como el bar, para probar las coordenadas locales.
+  // Sentado en el origen: la mesa a tu derecha y algo delante (lo que se propone para el bar).
+  const sala = new THREE.Group(); sala.position.set(0.1, 0, 0.05); sala.rotation.y = -0.2; escena.add(sala);
+  const tu = sala.worldToLocal(new THREE.Vector3(0, 0, 0));
+  const negocio = new Negocio({ motor, sonido, ui, xr });
+  const T = window.__t = { THREE, motor, negocio, xr, ui, escena, camara, renderer, sala, t: 0, bot: null, botFin: false, fotoPedida: null, mejoras: [], metas: [], cobros: [], setMax: n => { MAX = n; } };
+  negocio.alMejorar = (r, m) => T.mejoras.push({ ...m, nivel: r.nivel });
+  negocio.alMeta = m => T.metas.push(m.texto);
+  negocio.alCobrar = r => T.cobros.push(r);
+  await negocio.montar(sala, sala.worldToLocal(new THREE.Vector3(0.5, 0, -0.42)), tu);
+
+  T.mirar = (x, y, z, yaw = 0, pitch = 0) => { camara.position.set(x, y, z); camara.rotation.set(pitch, yaw, 0, 'YXZ'); };
+  T.arrancarPC = () => { $('portada').hidden = true; };
+  T.llamadas = () => renderer.info.render.calls;
+  T.listo = true;
+  T.mirar(0, 1.2, 0, -0.75, -0.62);
+  $('btnPC').onclick = () => T.arrancarPC();
+  $('btnAR').onclick = () => { prepararAudio(oyente); xr.entrar('ar'); };
+  $('btnVR').onclick = () => { prepararAudio(oyente); xr.entrar('vr'); };
+  navigator.xr?.isSessionSupported('immersive-ar').then(s => { $('btnAR').disabled = !s; }).catch(() => { });
+  navigator.xr?.isSessionSupported('immersive-vr').then(s => { $('btnVR').disabled = !s; }).catch(() => { });
+
+  const reloj = new THREE.Clock();
+  renderer.setAnimationLoop((t, frame) => {
+    const dt = Math.min(0.05, reloj.getDelta()); T.t += dt;
+    if (xr.sesion) xr.paso(frame, dt);
+    else {
+      xr.cabeza.copy(camara.position); xr.cabezaQ.copy(camara.quaternion); xr.adelante.set(0, 0, -1).applyQuaternion(camara.quaternion);
+      if (T.bot) { try { T.bot(dt, xr.manos); } catch (e) { console.error('bot', e); T.bot = null; } }
+    }
+    const manos = [xr.manos.derecha, xr.manos.izquierda];
+    try {
+      negocio.actualizar(dt, manos);
+      ui.actualizar(dt, xr.cabeza, xr.cabezaQ, manos);
+    } catch (e) { if (!T._err) { T._err = true; console.error('[negocio]', e); } }
+    renderer.render(escena, camara);
+  });
+</script>
+</body>
+</html>

@@ -40,12 +40,17 @@ await foto('cotine');
 // pulsar la tarjeta: el ui elige por el dedo; aquí, llamar a su callback
 const jugo = await ev(() => { const ui = window.__unake.obj().ui; const tj = ui.tarjetas.find(x => x.userData.texto.includes('Jugar: ')); if (!tj) return 'sin tarjeta'; const cb = tj.userData.cb || tj.userData.alElegir || ui.alElegir; if (!cb) return 'sin callback: ' + Object.keys(tj.userData).join(','); cb(tj.userData.texto); return 'ok'; });
 ok(jugo === 'ok', 'pulsar «Jugar»: ' + jugo);
-await pag.waitForTimeout(800);
-const m = await ev(() => ({ mision: window.__unake.recreativa().mision?.clave, guia: window.__unake.portales().metas, sala: window.__unake.barrio.salaId }));
-ok(m.mision === 'Tarta' && m.guia?.includes('dentro') && m.sala === 'cocina', 'en el humo, la Tarta va a la máquina con guía al bar: ' + JSON.stringify(m));
-await ev(() => window.__unake.cruzar('dentro'));
-await pag.waitForFunction(() => !window.__unake.minijuego && !window.__unake.barrio.ocupado, null, { timeout: 20000 });
-ok(await ev(() => window.__unake.portales().metas) === null, 'al llegar al bar, la guía se apaga');
+// la Tarta ya es nativa: se juega aquí mismo, en la cocina, y al acabar vuelves a la sala
+await pag.waitForFunction(() => window.__unake.minijuego?.id === 'tarta', null, { timeout: 30000 }).catch(() => { });
+ok(await ev(() => window.__unake.minijuego?.id) === 'tarta', 'la Tarta (nativa) empieza en la cocina');
+await pag.waitForTimeout(3000);
+await foto('tarta');
+await ev(() => window.__unake.minijuego?.inst?.abandonar?.());
+// «Volver» en las tarjetas finales
+await pag.waitForFunction(() => window.__unake.obj().ui.tarjetas.some(t => t.userData.texto === 'Volver'), null, { timeout: 20000 }).catch(() => { });
+await ev(() => { const ui = window.__unake.obj().ui; const tj = ui.tarjetas.find(t => t.userData.texto === 'Volver'); (tj?.userData.cb || ui.alElegir)?.('Volver'); });
+await pag.waitForFunction(() => !window.__unake.barrio.ocupado && window.__unake.fase === 'barrio' && window.__unake.barrio.salaId === 'cocina', null, { timeout: 30000 }).catch(() => { });
+ok(await ev(() => window.__unake.barrio.salaId) === 'cocina' && await ev(() => window.__unake.fase) === 'barrio', 'al acabar vuelves a la cocina: ' + JSON.stringify(await ev(() => ({ fase: window.__unake.fase, sala: window.__unake.barrio.salaId }))));
 ok(!errores.length, errores.length ? 'errores:\n' + errores.slice(0, 6).join('\n') : 'sin errores');
 console.log(fallos.length ? `${fallos.length} FALLOS` : 'TODO OK');
 await nav.close();

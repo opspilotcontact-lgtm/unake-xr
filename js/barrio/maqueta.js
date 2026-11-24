@@ -249,6 +249,29 @@ export class Maqueta {
   }
   async ponerParadero(paradero, aqui = this.aqui) { this.paradero = paradero; this.aqui = aqui; await this.ponerFichas(); }
 
+  // Las marcas de dónde está cada cosa: encima de cada diorama, una chapita con ★ (la misión) y/o los minijuegos
+  // abiertos allí (un mando y cuántos). marcas = { salaId: { estrella: bool, juegos: n } }. 1 llamada por chapita.
+  marcar(marcas = {}) {
+    for (const s of this.chapas || []) { this.grupo.remove(s); s.material.map?.dispose(); s.material.dispose(); }
+    this.chapas = []; this.marcas = marcas;
+    for (const [id, m] of Object.entries(marcas)) {
+      const d = this.dioramas[id]; if (!d || (!m.estrella && !m.juegos)) continue;
+      const c = document.createElement('canvas'); c.width = 192; c.height = 80;
+      const g = c.getContext('2d'), partes = [];
+      if (m.estrella) partes.push(['★', '#ffd23f']);
+      if (m.juegos) partes.push([`▶${m.juegos > 1 ? m.juegos : ''}`, '#9fe7ff']);
+      const w = 30 + partes.length * 66;
+      g.fillStyle = 'rgba(20,12,28,.85)'; g.beginPath(); g.roundRect((192 - w) / 2, 6, w, 68, 30); g.fill();
+      g.font = '50px Caprasimo, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      partes.forEach(([t, col], i) => { g.fillStyle = col; g.fillText(t, 96 + (i - (partes.length - 1) / 2) * 66, 42); });
+      const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, transparent: true, depthWrite: false }));
+      s.scale.set(0.06, 0.025, 1); s.renderOrder = 41; s.name = 'chapa-' + id;
+      s.position.set(this.huecos[id].x, d.caja.max.y + 0.018, this.huecos[id].z);
+      this.grupo.add(s); this.chapas.push(s);
+    }
+  }
+
   // colocar: sobre una mesa (punto de su superficie) o flotando a la cintura; de cara a la cabeza
   colocar(punto, cabeza) {
     this.grupo.position.copy(punto);

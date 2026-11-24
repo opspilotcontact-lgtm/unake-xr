@@ -20,6 +20,9 @@ import { Encargos, nombreDe } from './barrio/encargos.js';
 import { Tienda } from './barrio/tienda.js';
 import { Hucha } from './barrio/hucha.js';
 import { decorar } from './barrio/deco3d.js';
+import { Lugares, juegosDe, nombreJuego, nativoDe, prepararNativos, APUESTAS, OBJETOS, SITIOS_BAR, MODULOS_SALA, moduloSala, todosLosSitios, salaDeClave, SITIOS_PERSONA } from './barrio/lugares.js';
+import { Vida, id2d, idXR } from './barrio/vida.js';
+import { siguientePaso } from './barrio/portales.js';
 import { Reacciones } from './reacciones.js';
 import { Ambiente } from './ambiente.js';
 import { Fisica, Agarre } from './fisica.js';
@@ -93,7 +96,7 @@ function ponerAyudas() {
   const humo = J.mundo === 'humo' && !J.minijuego ? { stick: 'Andar', stickDer: 'Girar' } : {};
   manosV.ayudas({ ...(base || {}), ...humo });
 }
-let humo, puerta, unake, lasslow, blancaso, viaje, recreativa, motor, escenasH, munecaH, guia, reacciones, ambiente;
+let humo, puerta, unake, lasslow, blancaso, viaje, recreativa, motor, escenasH, munecaH, guia, reacciones, ambiente, vida;
 const fisica = new Fisica(), agarre = new Agarre(fisica);
 
 // ---------- estado del director ----------
@@ -118,7 +121,15 @@ J.salirSala = m => salirSala(m);
 J.portales = () => portales;
 J.encargos = () => encargos;
 J.empezarEncargo = r => empezarEncargo(r || 0);
-J.hablarCon = id => { const r = B.gente.find(x => x.id === id); if (r) hablarCon(r); return !!r; };
+J.hablarCon = id => { const r = personasAqui().find(o => o.r.id === id || o.id === id)?.r; if (r) hablarCon(r); return !!r; };
+J.vida = () => vida;
+J.lugares = () => (J.fase === 'barrio' && B.sala ? B.lugares : barLug);
+J.tocarLugar = sitio => tocarLugar(sitio);
+J.jugarLugar = clave => jugarLugar(clave);
+J.genteBar = () => genteBar;
+J.puedeTocarGente = () => puedeTocarGente();
+J.marcasMaqueta = () => marcasMaqueta();
+J.personasAqui = () => personasAqui().map(o => ({ id: o.id, x: +o.r.grupo.position.x.toFixed(2), z: +o.r.grupo.position.z.toFixed(2), visible: o.r.grupo.visible }));
 J.cruzar = d => cruzar(d);
 J.ocupadoHistoria = () => !!escenasH?.ocupada;
 J.abrirMenu = () => abrirMenu();
@@ -179,6 +190,7 @@ async function cargar() {
       mundo: J.mundo, sala: J.fase === 'barrio' ? B.salaId : null, enSala: J.fase === 'barrio' && !!B.sala,
       enBar: J.mundo === 'humo' && J.fase !== 'barrio' && !!unake?.grupo.visible, encargo: !!encargos.actual,
       libre: libreParaGuia(),
+      enBarGente: genteBar.filter(r => r.grupo.visible).map(r => id2d(r.id)),
     }),
     decir: (de, texto) => decirPista(de, texto),
     // el hilo: lo pone la guía, y solo quita el que puso ella (no el de un encargo o una partida pedida a mano)
@@ -187,7 +199,12 @@ async function cargar() {
       if (salas) { if (k !== ahora) portales.guia(salas); J._metasGuia = k; }
       else if (J._metasGuia && J._metasGuia === ahora) { portales.guia(null); J._metasGuia = ''; }
     },
-    maquina: clave => { if (recreativa.mision?.clave !== (clave || undefined) && !recreativa.enUso && !(J.minijuego?.id || '').startsWith('recreativa:')) recreativa.pedir(clave || null); },
+    // la máquina: la guía pide la misión ★; y solo quita lo que pidió ella (no la partida que pediste tú en una sala)
+    maquina: clave => {
+      if (recreativa.mision?.clave === (clave || undefined) || recreativa.enUso || (J.minijuego?.id || '').startsWith('recreativa:')) return;
+      if (!clave && recreativa.mision && recreativa.mision.clave !== J._maquinaGuia) return;
+      J._maquinaGuia = clave || null; recreativa.pedir(clave || null);
+    },
     llamar: () => munecaH.llamar(),
   });
   J.guia = guia;
@@ -195,6 +212,11 @@ async function cargar() {
   motor.on('alDesmayo', ({ perdidos }) => { J.colocon = 0; ui.cartela(`¡Te ha dado un amarillo! Despiertas en tu cuarto${perdidos ? ` (−${perdidos} monchis)` : ''}.`, 5); });
   motor.on('alAcabarCapitulo', e => sonido(e.final ? 'oooh' : 'campanita', { volumen: 0.6 }));
   J.motor = motor;
+  // el barrio vivo (js/barrio/vida.js) y los nativos nuevos que ya estén (js/barrio/lugares.js)
+  vida = new Vida({ motor, humo, sonido: (n, o) => sonido(n, o) });
+  barLug = new Lugares({ motor });
+  moduloSala('./cuarto.js').then(C => { J.hayCuarto = !!C; });
+  prepararNativos().then(n => { if (n.length) console.info('[lugares] nativos nuevos:', n.join(', ')); }).catch(() => { });
   puerta.grupo.visible = false; unake.grupo.visible = false; lasslow.grupo.visible = false; blancaso.grupo.visible = false;
   precargarSonidos(['lata', 'bonk', 'nam', 'fiu', 'tiroriro', 'zumbido-m', 'toc-toc', 'pin-pin', 'puerta', 'chof', 'papel', 'sorbo', 'mechero', 'mechero-falla', 'fup', 'calada', 'tos', 'tos-grande', 'risa-lasslow', 'fiuuu', 'whoosh', 'campanita', 'pop']);
 }
@@ -240,7 +262,8 @@ async function contarEscena() {
   try { await escenasH.contar(e, { objetivos: () => motor.objetivos() }); }
   catch (err) { console.error('[historia] escena', err); }
   finally {
-    fase(antes); motor.escenaContada(); guia?.empujar('escena', 1.5);
+    // si algo cambió la fase mientras tanto (salir de la sala, pruebas), no se pisa con la vieja
+    if (J.fase === 'historia') fase(antes); motor.escenaContada(); guia?.empujar('escena', 1.5);
     if (antes === 'barrio' && !motor.escenaPendiente) setTimeout(tarjetasSala, 400); // las tarjetas de la sala, de vuelta
   }
 }
@@ -272,6 +295,16 @@ function accionHistoria(a) {
     if (B.salaId === 'tienda' && o?.tipo === 'recado') motor.avisar('recado'); // con monchis ya, se compra aquí
     return irAlSitio(o);
   }
+  // inventos: en el taller de tu cuarto (js/barrio/cuarto.js), si está
+  if (a.tipo === 'invento' && J.hayCuarto) {
+    if (B.salaId === 'cuarto') return ui.cartela('El taller de inventos, aquí en tu cuarto: tócalo.', 3.5);
+    return irAlSitio(o, { salas: ['cuarto'], con: [] });
+  }
+  // mejoras y caja: en el bar del humo se hacen en la casa de muñecas del negocio (js/barrio/negocio.js)
+  const neg = negocioBar();
+  if (neg && (a.tipo === 'mejora' || a.tipo === 'cobrar') && J.mundo === 'humo' && J.fase !== 'barrio' && typeof neg.elegir === 'function') {
+    try { neg.elegir(a.id); ui.cartela(a.tipo === 'cobrar' ? 'La caja, en la maqueta del negocio: junto al sofá.' : 'Las mejoras, en la maqueta del negocio: junto al sofá.', 3.5); return; } catch (e) { console.error('[negocio] elegir', e); }
+  }
   const antes = motor.monchis;
   const r = motor.hacer(a);
   if (!r) {
@@ -300,7 +333,11 @@ function irAlSitio(o, sitio = null) {
   const enBar = J.mundo === 'humo' && J.fase !== 'barrio';
   if (enBar && salas.includes('dentro')) {
     if (o?.tipo === 'recoger') return ui.cartela('Lo que brilla, aquí en el bar: cógelo con la mano.', 3.5);
-    if (con.some(c => c !== 'lasslow' && c !== 'blancaso')) { ui.cartela('Vamos a la barra.', 2); return irASala('dentro'); }
+    const otros = con.filter(c => c !== 'lasslow' && c !== 'blancaso');
+    // Palicaso y la Pompa están aquí mismo, en el bar: se les toca
+    const aqui = otros.filter(c => genteBar.some(r => id2d(r.id) === c && r.grupo.visible));
+    if (otros.length && aqui.length === otros.length) return ui.cartela(`${aqui.map(c => NOMBRE_DE[c] || c).join(' y ')}: aquí en la barra. Acércate y tócale${aqui.length > 1 ? 's' : ''}.`, 4);
+    if (otros.length) { ui.cartela('Vamos a la barra.', 2); return irASala('dentro'); }
   }
   const metas = salas.filter(s => !(enBar && s === 'dentro'));
   if (!encargos.actual) portales.guia(metas);
@@ -519,7 +556,8 @@ function acabarCalada() {
     humo.exhalar(xr.boca(), xr.adelante, 0.25);
     J.calada = null; dejarDeFumar(); return;
   }
-  J.colocon += nivel.sube * (J.porro.calidad ?? 1);
+  // los bonos de la decoración y del armario del 2D (bonoDeco / bonoArmario)
+  J.colocon += nivel.sube * (J.porro.calidad ?? 1) * (1 + (motor?.d?.bonoDeco?.('colocon') || 0) + (motor?.d?.bonoArmario?.('colocon') || 0));
   ui.cartela('¡' + nivel.nombre + '!', 1.6);
   sonido(idx >= 3 ? 'oooh' : 'campanita', { volumen: 0.5 });
   Object.assign(c, { estado: 'aguanta', t: 0, nivel, idx, aire: 1 + idx * 0.3, aros: Math.min(5, idx + 2), callado: 0, soplo: false, antes: false });
@@ -812,10 +850,15 @@ async function jugarMinijuego(id) {
   if (J.liar) J.liar.grupo.visible = false;
   if (J.mechero) J.mechero.grupo.visible = false;
   J.ayudasMj = mod.ayudas || null; // un minijuego puede traer su chuleta: { gatillo, lateral, a, mano: {…} }
+  // en una sala del barrio se juega allí mismo, en su sitio (js/barrio/lugares.js)
+  J.mjEnSala = J.fase === 'barrio' && !!B.sala && !B.ocupado;
+  if (J.mjEnSala) { J.charla = false; ui.quitarTarjetas(); vida?.callar(6); }
   const faseAntes = J.fase; fase('minijuego');
   // menos que dibujar: la máquina fuera y, si el minijuego te encierra (la cabina de la furgo), el bar también
   recreativa.maquina.visible = false;
   if (mod.tapaElBar) { unake.grupo.visible = false; lasslow.grupo.visible = blancaso.grupo.visible = false; }
+  if (mod.ocultaColegas) lasslow.grupo.visible = blancaso.grupo.visible = false; // («Un señor»: tú eres Lasslow)
+  if (mod.tapaElBar && J.mjEnSala) { B.sala.grupo.visible = false; for (const r of B.gente) r.grupo.visible = false; }
   // sitio libre delante: el sofá se aparta y los colegas miran desde los lados, de pie
   J.antesMj = [lasslow, blancaso].map(p => p.grupo.position.clone());
   if (J.mundo === 'humo') unake.sofa.visible = false;
@@ -827,10 +870,15 @@ async function jugarMinijuego(id) {
     nivel: (() => { try { return motor?.d?.puente?.ev(`nivelDe(${JSON.stringify(mod.clave)})`) || 1; } catch { return 1; } })(),
     hucha: n => { J.hucha = (J.hucha || 0) + n; }, // hasta que el motor de historia lleve la hucha del 2D
     get modo() { return J.modo; },
+    // el micro (js/microfono.js) sin importarlo: soplar/volumen
+    get micro() { return hayMicro(); }, leerMicro,
+    // el monedero real de las apuestas (motor.monedero(): monchis del 2D y sus stats)
+    monchis: motor?.monedero ? motor.monedero() : { get valor() { return 0; }, apostar() { return false; }, cobrar() { } },
     delante: (d = 1, alto = null) => { const f = xr.adelante.clone().setY(0).normalize(); const q = xr.cabeza.clone().addScaledVector(f, d); q.y = alto ?? 0; return q; },
     mesa: () => xr.mesaCerca(),
     // lo que un minijuego le pasa al siguiente (la furgo → el control: quién va a bordo)
-    datos: { acompanantes: J.furgoAcompanantes ?? null },
+    // bandeja: el invento «Bandeja ancha» del 2D (comun.js → INVENTOS, tiene('bandeja')); tipos: Mirando (sin forzar)
+    datos: { acompanantes: J.furgoAcompanantes ?? null, bandeja: !!motor?.E?.inventos?.bandeja, tipos: null },
     terminar: ({ puntos, gana = true, linea = '' }) => {
       const dm = J.minijuego?.inst?.datos; if (dm?.acompanantes) J.furgoAcompanantes = dm.acompanantes;
       motor?.avisar('minijuego', { clave: mod.clave, puntos, gana, colocon: J.colocon });
@@ -889,7 +937,17 @@ async function jugarRecreativa(clave) {
 }
 function cerrarMinijuego(faseAntes) {
   const eraJuego = J.minijuego && J.minijuego.id !== 'barrio';
-  J.minijuego = null; fase(faseAntes);
+  // jugado en su sitio, dentro de una sala del barrio: vuelves a la sala (no al bar)
+  const enSala = eraJuego && J.mjEnSala && faseAntes === 'barrio' && !!B.sala; J.mjEnSala = false;
+  J.minijuego = enSala ? { id: 'barrio', inst: { actualizar() { } } } : null; fase(faseAntes);
+  if (enSala) {
+    B.sala.grupo.visible = true; for (const r of B.gente) r.grupo.visible = true;
+    ambiente?.entrar(B.salaId, J.mundo, B.sala);
+    if (J.antesMj) [lasslow, blancaso].forEach((p, i) => p.grupo.position.copy(J.antesMj[i]));
+    guia?.empujar('minijuego', 3);
+    setTimeout(tarjetasSala, 700);
+    return;
+  }
   if (eraJuego) {
     if (J.mundo === 'humo') { recreativa.maquina.visible = true; unake.grupo.visible = true; }
     lasslow.grupo.visible = blancaso.grupo.visible = true;
@@ -949,6 +1007,9 @@ function ponerMaqueta() {
   if (m) punto = m.punto.clone().setY(m.punto.y + 0.012);
   else { const f = xr.adelante.clone().setY(0).normalize(); punto = xr.cabeza.clone().addScaledVector(f, 0.6); punto.y = Math.max(0.6, xr.cabeza.y - 0.6); }
   B.maqueta.colocar(punto, xr.cabeza); B.maqueta.grupo.visible = true;
+  // quién está dónde (paradero vivo) y dónde está cada cosa: ★ la misión, ▶ los minijuegos abiertos
+  try { B.maqueta.marcar(marcasMaqueta()); } catch (e) { console.error('[maqueta] marcas', e); }
+  if (vida) B.maqueta.ponerParadero(vida.paraderoMaqueta(), J.mundo === 'humo' ? 'dentro' : 'cuarto').catch(e => console.error('[maqueta] paradero', e));
   const f = xr.adelante.clone().setY(0).normalize(), lado = new THREE.Vector3(-f.z, 0, f.x);
   const c = xr.cabeza.clone().addScaledVector(f, 0.45).addScaledVector(lado, 0.35); c.y = xr.cabeza.y - 0.3;
   ui.tarjetasEn([J.mundo === 'humo' ? 'Volver a Unaké' : 'Volver a casa'], c, f.clone().negate(), () => cerrarBarrio());
@@ -974,10 +1035,19 @@ async function entrarSala(id) {
     const def = M.mundoDe(id, J.mundo), gente = [];
     // la decoración 3D de la sala (se crea nueva en cada entrada: las salas van en caché)
     let deco = null; try { deco = await decorar(id, J.mundo, nueva, { THREE }); } catch (e) { console.error('[deco]', id, e); }
-    for (const [quien, casa] of Object.entries(M.CASAS)) {
-      if (casa !== id || (J.mundo !== 'humo' && M.SOLO_HUMO.includes(quien)) || !def.sitios?.[quien]) continue;
-      try { const r = await Recortable.crear(quien, J.mundo); r.userData = { local: nueva.sueloDe(def.sitios[quien][0], def.sitios[quien][1]) }; gente.push(r); } catch { /* sin dibujo */ }
+    // quién está: los de casa que no se han ido de visita y las visitas ya llegadas (paradero del 2D, js/barrio/vida.js)
+    const sinVer = []; let nVisita = 0;
+    for (const q of vida ? vida.quienEn(id, J.mundo) : Object.entries(M.CASAS).filter(([, c]) => c === id).map(([q]) => ({ id: id2d(q), visita: false }))) {
+      const quien = idXR(q.id);
+      const px = q.visita ? def.visita : def.sitios?.[quien];
+      if (!px || (J.mundo !== 'humo' && M.SOLO_HUMO.includes(quien))) { if (!q.visita && M.CASAS[quien] === id) sinVer.push(q.id); continue; }
+      try {
+        const r = await Recortable.crear(quien, J.mundo);
+        const dx = q.visita ? (nVisita++) * def.W * 0.08 : 0;
+        r.userData = { local: nueva.sueloDe(px[0] + dx, px[1]) }; r.userData.local.y += px[2] || 0; gente.push(r);
+      } catch { if (!q.visita) sinVer.push(q.id); }
     }
+    const metasAntes = portales.metas ? [...portales.metas] : null, salaAntes = B.salaId || (J.mundo === 'humo' ? 'dentro' : 'cuarto');
     await new Promise(ok => humo.llenar(xr.cabeza.clone(), () => {
       if (B.maqueta) B.maqueta.grupo.visible = false;
       if (B.sala) escena.remove(B.sala.grupo);
@@ -997,8 +1067,11 @@ async function entrarSala(id) {
       if (id === 'tienda') encargos.montarTablon(nueva.grupo, new THREE.Vector3(Math.max((nueva.medidas?.xl ?? -2) + 0.35, -1.7), 0, -1.1));
       else encargos.quitarTablon();
       montarCosasSala(id, nueva, def);
-      motor?.avisar('sala', { id, gente: gente.map(r => r.id === 'la-pompa' ? 'pompa' : r.id) });
-      for (const r of gente) { r.grupo.position.copy(nueva.grupo.localToWorld(r.userData.local.clone())); escena.add(r.grupo); }
+      // hablar = tocar: entrar ya no cuenta como hablar con quien VES (hay que tocarle); solo con quien no tiene figura
+      motor?.avisar('sala', { id, gente: sinVer });
+      for (const r of gente) { r.grupo.position.copy(nueva.grupo.localToWorld(r.userData.local.clone())); escena.add(r.grupo); vida?.ponerCasa(r, r.grupo.position); }
+      // a tu aire: si entras donde no manda la historia, la guía se calla un rato
+      if (metasAntes && !metasAntes.includes(id) && siguientePaso(salaAntes, metasAntes) !== id) guia?.jugandoLibre(120);
       escena.background = new THREE.Color('#1a1426');
       fisica.planos = []; xr.permitirMovimiento(true);
       ok();
@@ -1018,28 +1091,97 @@ function tarjetasSala() {
 
 // ---------- la gente de cada sala: tocarla (o señalarla y pellizcar) = te habla y te ofrece lo suyo ----------
 // Las frases son las del 2D (SALUDOS y CHARLAS de escenas/barrio.js, leídas por el motor).
+// El minijuego principal de cada uno (su marca en el 2D); el resto de lo suyo sale de lugaresDe() del 2D.
 const MISION_DE = { palicaso: 'Barra', cotine: 'Tarta', lasslow: 'Lasslow', perico: 'Pipas' };
 const NOMBRE_DE = { palicaso: 'Palicaso', cotine: 'Cotine', lasslow: 'Lasslow', perico: 'Perico', pompa: 'La Pompa', puky: 'Puky', blancaso: 'Blancaso' };
+
+// ---------- el bar del humo: Palicaso en la barra y la Pompa flotando (como en el 2D), además de tus colegas ----------
+// Medidas de SALA_DENTRO (decorado.js) y los sitios de salas.js → dentro.humo: Palicaso (704, 520), la Pompa (960, 560, +1 m).
+let genteBar = [], barLug = null, _montandoBar = false;
+const SITIO_BAR = { palicaso: new THREE.Vector3(0.02, 0, -4.4), 'la-pompa': new THREE.Vector3(1.36, 1.0, -3.67) };
+async function montarGenteBar() {
+  if (genteBar.length || _montandoBar) return colocarGenteBar();
+  _montandoBar = true;
+  try {
+    for (const id of Object.keys(SITIO_BAR)) {
+      try { const r = await Recortable.crear(id, 'humo'); r.userData = { local: SITIO_BAR[id].clone(), bar: true }; escena.add(r.grupo); genteBar.push(r); } catch { /* sin dibujo */ }
+    }
+  } finally { _montandoBar = false; }
+  colocarGenteBar();
+}
+function colocarGenteBar() {
+  for (const r of genteBar) { r.grupo.position.copy(unake.grupo.localToWorld(r.userData.local.clone())); vida?.ponerCasa(r, r.grupo.position); }
+}
+const enElBar = () => J.mundo === 'humo' && !!unake?.grupo.visible && J.fase !== 'barrio' && !J.transicion;
+
+// ---------- quién hay aquí (en la sala o en el bar) ----------
+// fijo: no pasea (tus colegas en el sofá). soloRayo: en el bar, a Lasslow y Blancaso se les habla señalando y
+// pellizcando (tocar de cerca es pasarles el porro).
+function personasAqui() {
+  if (J.fase === 'barrio' && B.sala && !B.ocupado) return B.gente.map(r => ({ id: id2d(r.id), r }));
+  if (J.fase === 'minijuego' || J.fase === 'recreativa') return [];
+  if (!enElBar()) return [];
+  const out = genteBar.filter(r => r.grupo.visible).map(r => ({ id: id2d(r.id), r }));
+  for (const [id, r] of [['lasslow', lasslow], ['blancaso', blancaso]]) if (r?.grupo.visible) out.push({ id, r, fijo: true, soloRayo: true });
+  return out;
+}
+// ¿se puede tocar a alguien ahora? (en el bar, solo con las manos libres y sin pases a medias)
+function puedeTocarGente() {
+  if (B.ocupado || J.menu || J.charla || escenasH?.ocupada || recreativa?.enUso || J.transicion) return false;
+  if (J.fase === 'barrio') return !!B.sala;
+  return enElBar() && J.fase === 'fumar' && !J.minijuego && !J.calada && !J.enManos && !J.vuela && !J.ofrecido && !J.liar && !J.mechero;
+}
+const _rayoG = new THREE.Raycaster();
 function pasoGente(dt, ms) {
   J._esperaGente = Math.max(0, (J._esperaGente || 0) - dt);
-  if (J.fase !== 'barrio' || !B.sala || B.ocupado || J.menu || J.charla || escenasH?.ocupada || J._esperaGente > 0) return;
-  const rayo = new THREE.Raycaster(); rayo.far = 6;
-  for (const r of B.gente) {
-    const p = r.grupo.position;
-    for (const m of ms) {
-      if (!m.activa) continue;
-      let toca = Math.hypot(m.punta.x - p.x, m.punta.z - p.z) < 0.3 && m.punta.y > 0.3 && m.punta.y < 2.2;
+  if (J._esperaGente > 0 || !puedeTocarGente()) return;
+  _rayoG.far = 6;
+  const libres = ms.filter(m => m.activa && J.porro?.mano !== m && !agarre.lleva?.(m));
+  for (const o of personasAqui()) {
+    const r = o.r, p = r.grupo.position;
+    if (!r.grupo.visible) continue;
+    for (const m of libres) {
+      let toca = !o.soloRayo && Math.hypot(m.punta.x - p.x, m.punta.z - p.z) < 0.3 && m.punta.y > p.y + 0.3 && m.punta.y < p.y + 2.2;
       if (!toca && m.empiezaPinza) {
         const dir = m.esMano ? m.punta.clone().sub(xr.cabeza).normalize() : new THREE.Vector3(0, 0, -1).applyQuaternion(m.quat);
-        rayo.set(m.esMano ? xr.cabeza : m.pos, dir);
-        toca = rayo.intersectObject(r.grupo, true).length > 0;
+        _rayoG.set(m.esMano ? xr.cabeza : m.pos, dir);
+        toca = _rayoG.intersectObject(r.grupo, true).length > 0;
       }
       if (toca) { m.vibrar(0.4, 40); J._esperaGente = 2.5; return hablarCon(r); }
     }
   }
 }
+// Los minijuegos de un sitio (persona u objeto), con la misión ★ primero.
+function juegosDelSitio(sitio) {
+  const mundo = J.mundo === 'humo' ? 'humo' : 'normal';
+  const lista = juegosDe(motor, sitio, mundo);
+  const principal = MISION_DE[sitio];
+  if (principal && motor?.d?.MISIONES?.[principal] && !lista.includes(principal) && mundo === 'humo') lista.unshift(principal);
+  const mision = motor?.objetivos()?.historia?.accion?.clave;
+  if (mision && lista.includes(mision)) { lista.splice(lista.indexOf(mision), 1); lista.unshift(mision); }
+  return { lista: lista.slice(0, 4), mision };
+}
+// Las tarjetas «Jugar: …» delante de quien (o de lo que) te lo ofrece.
+function ofrecerJuegos(sitio, haciaPunto, { alCerrar = null } = {}) {
+  const { lista, mision } = juegosDelSitio(sitio);
+  if (!lista.length) return false;
+  J.charla = true;
+  const haciaEl = haciaPunto.clone().sub(xr.cabeza).setY(0).normalize();
+  const c = xr.cabeza.clone().addScaledVector(haciaEl, 0.45); c.y = xr.cabeza.y - 0.34; // por debajo de su cara
+  const textos = lista.map(k => (k === mision ? '★ ' : '') + 'Jugar: ' + nombreJuego(motor, k));
+  ui.tarjetasEn([...textos, 'Ahora no'], c, haciaEl.clone().negate(), t => {
+    J.charla = false; ui.quitarTarjetas();
+    const i = textos.indexOf(t);
+    if (i >= 0) { if (lista[i] !== mision) guia?.jugandoLibre(180); return jugarLugar(lista[i]); }
+    alCerrar ? alCerrar() : tarjetasSala();
+  });
+  clearTimeout(ofrecerJuegos._t);
+  ofrecerJuegos._t = setTimeout(() => { if (J.charla) { J.charla = false; ui.quitarTarjetas(); alCerrar ? alCerrar() : tarjetasSala(); } }, 10000);
+  return true;
+}
 function hablarCon(r) {
-  const id = r.id === 'la-pompa' ? 'pompa' : r.id, d = motor?.d;
+  const id = id2d(r.id), d = motor?.d;
+  vida?.callar(5); // cuando hablas tú, el ambiente se calla
   motor?.avisar('hablar', { con: id });
   if (encargos.actual?.destino.id === id) return entregarEncargo(r, id);
   const lineas = d?.SALUDOS?.[id]?.[J.mundo] || d?.SALUDOS?.[id]?.humo || d?.CHARLAS?.[J.mundo]?.[id] || ['…'];
@@ -1048,25 +1190,143 @@ function hablarCon(r) {
   // de lejos el bocadillo se lee mal: la frase también en la cartela
   if (r.grupo.position.distanceTo(xr.cabeza) > 1.4) ui.cartela(`${NOMBRE_DE[id] || id}: «${linea}»`, 3.5);
   sonido('pop', { volumen: 0.3 });
-  const clave = MISION_DE[id];
-  if (!clave) return;
-  const nombre = d?.MISIONES?.[clave]?.nombre || clave;
-  const oh = motor?.objetivos()?.historia, esMision = oh?.accion?.clave === clave;
-  J.charla = true;
-  const haciaEl = r.grupo.position.clone().sub(xr.cabeza).setY(0).normalize();
-  const c = xr.cabeza.clone().addScaledVector(haciaEl, 0.45); c.y = xr.cabeza.y - 0.34; // por debajo de su cara
-  const jugar = (esMision ? '★ ' : '') + 'Jugar: ' + nombre;
-  ui.tarjetasEn([jugar, 'Ahora no'], c, haciaEl.clone().negate(), t => {
-    J.charla = false; ui.quitarTarjetas();
-    if (t === jugar) jugarDesdeSala(clave); else tarjetasSala();
-  });
-  setTimeout(() => { if (J.charla) { J.charla = false; ui.quitarTarjetas(); tarjetasSala(); } }, 10000);
+  // si no era nadie de la misión, estás dando vueltas: la guía no persigue
+  const { con } = motor ? motor.sitiosPendientes(motor.objetivos().historia) : { con: [] };
+  if (!con.includes(id)) guia?.jugandoLibre(120);
+  if (!SITIOS_PERSONA.includes(id)) return;
+  const enBar = J.fase !== 'barrio';
+  ofrecerJuegos(id, r.grupo.position, { alCerrar: enBar ? () => { } : null });
 }
+// Tocar un objeto con minijuegos (la M, el monitor, la lona, la tragaperras…)
+function tocarLugar(sitio) {
+  const k = (J.fase === 'barrio' ? B.lugares : barLug)?.get(sitio);
+  const o = OBJETOS[sitio];
+  sonido('pop', { volumen: 0.35 });
+  if (o) ui.cartela(o.nombre, 2.5);
+  const donde = k ? k.g.getWorldPosition(new THREE.Vector3()) : xr.cabeza.clone().addScaledVector(xr.adelante, 1);
+  return ofrecerJuegos(sitio, donde, { alCerrar: J.fase === 'barrio' ? null : () => { } });
+}
+// Jugar un minijuego desde su sitio: nativo si hay módulo (allí mismo); si no, la máquina con ★.
+async function jugarLugar(clave) {
+  const id = await nativoDe(clave);
+  if (id) {
+    if (J.fase === 'barrio' && B.sala) return jugarMinijuego(id);
+    if (J.fase === 'barrio' || J.minijuego) return; // de camino (maqueta, otra partida)
+    return jugarMinijuego(id);
+  }
+  if (APUESTAS[clave]) { ui.cartela(`${APUESTAS[clave]}: fuera de servicio. Palicaso dice que mañana la arregla.`, 3.5); if (J.fase === 'barrio') tarjetasSala(); return; }
+  if (J.fase === 'barrio') return jugarDesdeSala(clave);
+  return irALaMaquina(clave);
+}
+
+// ---------- el mundo vivo: paradero, rutinas, charlas y sucesos (js/barrio/vida.js) ----------
+function pasoVida(dt) {
+  if (!vida || !motor) return;
+  J._cadaAgenda = (J._cadaAgenda ?? 1) - dt;
+  if (J._cadaAgenda <= 0) {
+    J._cadaAgenda = 1;
+    const o = motor.objetivos().historia, { con } = motor.sitiosPendientes(o);
+    const retener = [...con, encargos.actual?.destino.id].filter(Boolean);
+    for (const e of vida.agenda({ mundo: J.mundo, retener })) aplicarVisita(e);
+  }
+  const libre = !J.charla && !J.menu && !escenasH?.ocupada && !B.ocupado && !J.transicion && !recreativa?.enUso && (J.fase === 'barrio' ? !!B.sala : enElBar() && !J.minijuego && !J.calada && !J.enManos && !J.vuela && !J.ofrecido);
+  const s = vida.paso(dt, { personas: personasAqui(), cabeza: xr.cabeza, mundo: J.mundo, libre });
+  if (s === 'lluvia') { J.colocon = Math.min(100, J.colocon + 5); ui.cartela('Llueve humo morado. Respira hondo.', 3); }
+}
+// Una salida o una llegada en la sala donde estás: se le ve irse andando a la puerta, o llegar por ella.
+function puertaHacia(dest) {
+  const paso = siguientePaso(B.salaId, [dest]) || dest;
+  const p = portales.lista.find(x => x.dest === paso) || portales.lista[0];
+  if (!p) return null;
+  const w = p.malla.getWorldPosition(new THREE.Vector3());
+  return w.lerp(B.sala.grupo.getWorldPosition(new THREE.Vector3()).setY(0), 0.12).setY(0);
+}
+async function aplicarVisita(e) {
+  if (J.fase !== 'barrio' || !B.sala || B.ocupado) return;
+  const sala = B.salaId, quien = idXR(e.id);
+  if (e.tipo === 'sale' && e.de === sala) {
+    const r = B.gente.find(x => x.id === quien); if (!r) return;
+    const fin = puertaHacia(e.a);
+    const quitar = () => { escena.remove(r.grupo); B.gente = B.gente.filter(x => x !== r); };
+    if (!fin) return quitar();
+    if (Math.random() < 0.6) r.decir(sinRepetir('adios', ['Ahora vuelvo.', 'Voy un momento a ver una cosa.', 'Me voy a dar una vuelta.']), { dur: 2 });
+    vida.andar(r, fin, quitar, 0.8);
+  }
+  if (e.tipo === 'llega' && e.a === sala && !B.gente.some(x => x.id === quien)) {
+    const M = await modsBarrio(), def = M.mundoDe(sala, J.mundo), casa = M.CASAS[quien] === sala;
+    const px = casa ? def.sitios?.[quien] : def.visita;
+    if (!px || (J.mundo !== 'humo' && M.SOLO_HUMO.includes(quien))) return;
+    let r; try { r = await Recortable.crear(quien, J.mundo); } catch { return; }
+    if (B.salaId !== sala || !B.sala) return;
+    const meta = B.sala.grupo.localToWorld(B.sala.sueloDe(px[0] + (casa ? 0 : B.gente.length * def.W * 0.05), px[1]));
+    const ini = puertaHacia(e.de) || meta.clone();
+    r.grupo.position.copy(ini); escena.add(r.grupo); B.gente.push(r);
+    vida.andar(r, meta, () => { vida.ponerCasa(r, meta); const f = casa ? null : vida.fraseVisita(e.id, sala); if (f) r.decir(f, { dur: 2.6 }); }, 0.8);
+  }
+}
+// Las marcas de la maqueta: ★ donde manda la historia, ▶ donde hay minijuegos abiertos (con su gente donde esté).
+function marcasMaqueta() {
+  const marcas = {}, mundo = J.mundo === 'humo' ? 'humo' : 'normal';
+  const poner = (sala, k, v) => { if (!sala) return; (marcas[sala] = marcas[sala] || { estrella: false, juegos: 0 })[k] = k === 'juegos' ? marcas[sala].juegos + v : v; };
+  if (motor) {
+    const o = motor.objetivos().historia, a = o?.accion;
+    if (a) {
+      for (const s of motor.sitiosPendientes(o).salas) poner(s, 'estrella', true);
+      if (a.tipo === 'hucha') poner('plaza', 'estrella', true);
+      if (a.tipo === 'recreativa' && mundo === 'humo') poner('dentro', 'estrella', true);
+      if ((a.tipo === 'nativo' || a.tipo === 'recreativa') && a.clave) { const l = salaDeClave(motor, a.clave); if (l) poner(SITIOS_PERSONA.includes(l.sitio) ? (vida?.dondeEsta(l.sitio) || l.sala) : l.sala, 'estrella', true); }
+    }
+    for (const [sitio, sala] of todosLosSitios(motor)) {
+      const n = juegosDelSitio(sitio).lista.length; if (!n) continue;
+      poner(SITIOS_PERSONA.includes(sitio) ? (vida?.dondeEsta(sitio) || sala) : sala, 'juegos', n);
+    }
+  }
+  return marcas;
+}
+
 // ---------- la tienda de 24 h y la hucha de Blancaso (js/barrio/tienda.js, hucha.js) ----------
-function quitarCosasSala() { B.tienda?.quitar(); B.tienda = null; B.hucha?.quitar(); B.hucha = null; }
+function quitarCosasSala() {
+  B.tienda?.quitar(); B.tienda = null; B.hucha?.quitar(); B.hucha = null; B.lugares?.quitar();
+  for (const m of B.modsSala || []) { try { m.quitar?.(); } catch (e) { console.error('[sala] quitar', e); } }
+  B.modsSala = [];
+}
+// Los módulos de sala que existan (js/barrio/cuarto.js, negocio.js…: API de la tienda). Se enchufan solos.
+function montarModulosSala(id, grupo, lista, donde) {
+  for (const { archivo, pos, hacia, nombre } of MODULOS_SALA[id] || []) {
+    moduloSala(archivo).then(C => {
+      if (!C || !donde()) return;
+      let m; try { m = new C({ motor, sonido: (n, o) => sonido(n, o), ui, xr, agarre }); } catch (e) { console.error('[sala] módulo', archivo, e); return; }
+      m.nombreMod = nombre || archivo;
+      if (m.nombreMod === 'negocio') {
+        // lo que pasa en el negocio lo dicen Palicaso (mejoras, metas) y Blancaso (la caja)
+        const di2 = (quien, l) => { if (!l) return; const r = quien === 'palicaso' ? genteBar.find(x => x.id === 'palicaso') : blancaso; if (r?.grupo.visible) r.decir(l, { dur: 3.2 }); else ui.cartela(l, 3); };
+        m.alMejorar = (r, x) => di2('palicaso', `¡Escucha! ${x?.nombre || 'Mejora'} para Unaké. ¡Esto ya es otra cosa!`);
+        m.alMeta = meta => di2('palicaso', meta?.texto ? `¡Meta cumplida! ${meta.texto}` : '¡Meta cumplida!');
+        m.alCobrar = r => di2('blancaso', `Caja cobrada${r?.monchis ? ': +' + r.monchis + ' monchis' : ''}. Apuntado.`);
+      }
+      if (m.nombreMod === 'cuarto') {
+        m.alVestir = x => ui.cartela(x?.nombre ? `Te pones: ${x.nombre}.` : 'Ropa nueva.', 2.5);
+        m.alInventar = x => ui.cartela(x?.nombre ? `Invento nuevo: ${x.nombre}.` : 'Invento nuevo en tu cuarto.', 2.5);
+      }
+      lista.push(m);
+      Promise.resolve(m.montar?.(grupo, new THREE.Vector3(...pos), new THREE.Vector3(...hacia))).then(() => { m.lista = true; if (!donde()) m.quitar?.(); }).catch(e => console.error('[sala] montar', archivo, e));
+    });
+  }
+}
 function montarCosasSala(id, sala, def) {
   quitarCosasSala();
   if (!motor) return;
+  // los minijuegos que viven en cosas de esta sala (la M, el monitor, la lona, la tragaperras…), en su sitio del 2D
+  if (!B.lugares) B.lugares = new Lugares({ motor });
+  const kx = (def.W || 1280) / 1280, ky = (def.H || 714) / 714, md = sala.medidas || {};
+  const colocar = (x, y) => {
+    const p = sala.sueloDe(x * kx, y * ky);
+    p.x = THREE.MathUtils.clamp(p.x, (md.xl ?? -3) + 0.45, (md.xr ?? 3) - 0.45);
+    p.z = THREE.MathUtils.clamp(p.z, -Math.max(1.2, (md.D ?? 3) - 0.35), -1.0);
+    return p;
+  };
+  try { B.lugares.montar(sala.grupo, id, J.mundo === 'humo' ? 'humo' : 'normal', { colocar }); } catch (e) { console.error('[lugares]', id, e); }
+  montarModulosSala(id, sala.grupo, B.modsSala, () => B.salaId === id && B.sala === sala);
   if (id === 'tienda') {
     const t = new Tienda({ motor, sonido, ui, agarre, xr });
     t.alComer = e => { J.colocon = Math.max(0, J.colocon + (e?.colocon || 0)); };
@@ -1191,7 +1451,9 @@ function entregarEncargo(r, id) {
 const esperar = (cond, ms = 8000) => new Promise(ok => { const t0 = performance.now(); const f = () => (cond() || performance.now() - t0 > ms) ? ok() : setTimeout(f, 100); f(); });
 // nativo: se juega ya (en el bar o en casa); el resto, en la máquina del bar (de día, la máquina viene a ti)
 async function jugarDesdeSala(clave) {
-  const nativo = NATIVOS[clave];
+  const nativo = NATIVOS[clave] || await nativoDe(clave);
+  // nativo: en su sitio, aquí mismo en la sala (cerrarMinijuego te devuelve a ella)
+  if (nativo && J.fase === 'barrio' && B.sala && !B.ocupado) return jugarMinijuego(nativo);
   if (!nativo && J.mundo === 'humo') {
     recreativa.pedir(clave); portales.guia(['dentro']);
     ui.cartela('A la máquina del bar: sigue el hilo de humo. Tu partida sale la primera ★', 4);
@@ -1210,7 +1472,14 @@ function salirSala(aMaqueta) {
     B.sala = null; B.salaId = null; B.gente = []; portales.quitar(); encargos.quitarTablon(); quitarCosasSala();
     B.deco?.quitar(); B.deco = null;
     restaurarMundo();
-    if (aMaqueta) ponerMaqueta(); else cerrarBarrio(true);
+    // al Mapa: si llegaste andando (sin maqueta aún) se crea; si es del otro mundo, se cambia
+    if (aMaqueta) {
+      modsBarrio().then(async M => {
+        if (!B.maqueta) { B.maqueta = await M.Maqueta.crear({ mundo: J.mundo, alEntrar: id => entrarSala(id) }); escena.add(B.maqueta.grupo); }
+        else await B.maqueta.cambiarMundo(J.mundo);
+        if (J.fase === 'barrio' && !B.sala) ponerMaqueta();
+      }).catch(e => console.error('[barrio] mapa', e));
+    } else cerrarBarrio(true);
     B.ocupado = false;
   });
 }
@@ -1233,7 +1502,19 @@ function restaurarMundo() {
 // Unaké (el bar del humo) es la sala «dentro» del barrio: sus puertas llevan a la calle y a la cocina
 // (las de los lados, más al fondo que la máquina, que está en z = −0,9)
 function montarPuertasUnake() {
-  if (!J.decoBar && !J._decoBarPidiendo) { J._decoBarPidiendo = true; decorar('bar', 'humo', unake, { THREE }).then(d => { J.decoBar = d; unake.grupo.add(d.grupo); }).catch(e => console.error('[deco] bar', e)); } portales.montar(unake.grupo, unake.medidas, 'dentro', { zLado: -2.3 }); }
+  if (!J.decoBar && !J._decoBarPidiendo) { J._decoBarPidiendo = true; decorar('bar', 'humo', unake, { THREE }).then(d => { J.decoBar = d; unake.grupo.add(d.grupo); }).catch(e => console.error('[deco] bar', e)); } portales.montar(unake.grupo, unake.medidas, 'dentro', { zLado: -2.3 }); montarBar(); }
+// Lo vivo del bar del humo: Palicaso y la Pompa, los minijuegos en cosas (la llave del casero) y el negocio.
+function montarBar() {
+  montarGenteBar().catch(e => console.error('[bar] gente', e));
+  if (barLug) { try { barLug.montar(unake.grupo, 'dentro', 'humo', { fijos: SITIOS_BAR }); } catch (e) { console.error('[bar] lugares', e); } }
+  if (!J.modsBar) { const l = J.modsBar = []; montarModulosSala('bar', unake.grupo, l, () => J.modsBar === l && J.mundo === 'humo'); }
+}
+// al irte del humo, el negocio (y lo que haya en el bar) se quita; vuelve a montarse en la próxima noche
+function quitarModsBar() {
+  for (const m of J.modsBar || []) { try { m.quitar?.(); } catch (e) { console.error('[bar] quitar', e); } }
+  J.modsBar = null;
+}
+const negocioBar = () => (J.modsBar || []).find(m => m.nombreMod === 'negocio' && m.lista) || null;
 // ir andando a una sala desde Unaké (sin maqueta)
 async function irASala(id) {
   if (B.ocupado || J.transicion) return;
@@ -1302,7 +1583,7 @@ function cambiarMundo(aHumo) {
       if (!J.yaExplicoMover && J.modo !== 'pc') { J.yaExplicoMover = true; setTimeout(() => ui.cartela('Aquí puedes andar con el joystick izquierdo y girar con el derecho.', 4), 4000); }
     } else {
       xr.permitirMovimiento(false); // de vuelta a tu sitio real: la casa tiene que cuadrar
-      humo.disiparAmbiente();
+      humo.disiparAmbiente(); quitarModsBar();
       unake.grupo.visible = false; puerta.grupo.visible = true; casaFalsa.visible = J.modo !== 'ar';
       portales.quitar();
       escena.background = J.modo === 'ar' ? null : new THREE.Color('#e6dfd2');
@@ -1364,6 +1645,20 @@ function director(dt) {
   if (J.decoBar && unake?.grupo.visible) J.decoBar.actualizar(dt, J.t, xr.cabeza);
   // tienda y hucha: solo cuando su montar() (asíncrono) ha terminado
   if (J.fase === 'barrio' && !J.charla) { if (B.tienda?.lista) B.tienda.actualizar(dt, ms); if (B.hucha?.lista) B.hucha.actualizar(dt, ms); }
+  // los módulos de sala (cuarto, negocio…) y los sitios con minijuegos; el bar del humo, con su gente
+  const tocable = !recreativa?.enUso && puedeTocarGente();
+  const manosLibres = ms.filter(m => J.porro?.mano !== m && !agarre.lleva?.(m));
+  if (J.fase === 'barrio' && B.sala && !J.charla) {
+    for (const m of B.modsSala || []) if (m.lista) { try { m.actualizar?.(dt, ms); } catch (e) { if (!m._err) { m._err = true; console.error('[sala] módulo', e); } } }
+    const s = B.lugares?.actualizar(dt, manosLibres, cab, { puede: tocable }); if (s) tocarLugar(s);
+  }
+  const barVisible = enElBar() && !(J.minijuego && J.minijuego.id !== 'barrio');
+  for (const r of genteBar) { r.grupo.visible = barVisible; if (barVisible) r.actualizar(dt, cab); }
+  if (barVisible) {
+    for (const m of J.modsBar || []) if (m.lista && !J.charla && ['fumar', 'liar', 'encender'].includes(J.fase) && !J.minijuego) { try { m.actualizar?.(dt, ms); } catch (e) { if (!m._err) { m._err = true; console.error('[bar] módulo', e); } } }
+    const s = barLug?.actualizar(dt, manosLibres, cab, { puede: tocable }); if (s) tocarLugar(s);
+  }
+  pasoVida(dt);
   if (J.fase === 'barrio') { if (B.maqueta?.grupo.visible) B.maqueta.actualizar(dt, ms, cab); for (const r of B.gente) r.actualizar(dt, cab); }
   if (J.minijuego) { mirarSalirMinijuego(); try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
   if (!escenasH?.ocupada && !J.charla && (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender' || (J.fase === 'barrio' && B.sala && !B.ocupado))) mirarMenu();

@@ -53,7 +53,8 @@ await libre();
 await ev(() => window.__unake.motor.irA(1, { conIntro: false }));
 await libre(); await pag.waitForTimeout(2600);
 s = await ev(() => { const J = window.__unake, o = J.motor.objetivos().historia; return { o: o.id, plan: J.guia.plan(o), mision: J.recreativa().mision?.clave }; });
-ok(s.mision === 'Barra' && s.plan?.maquina === 'Barra' && /máquina/.test(s.plan.texto), 'misión de la máquina: la máquina la pide (parpadea) y la pista lo dice: ' + JSON.stringify(s));
+// la Barra ya es nativa (24/11): la pista manda a la ★ para jugarla en VR, no a la máquina
+ok(!s.plan?.maquina && /★/.test(s.plan?.texto || '') && /barra/i.test(s.plan?.texto || ''), 'misión nativa (Barra): la pista manda a la ★ y no a la máquina: ' + JSON.stringify(s));
 let p = await ev(() => window.__unake.guia.pistaYa('prueba'));
 ok(!!p?.texto, 'pista dicha: ' + JSON.stringify(p));
 await ev(() => window.__unake.prueba.mirar(0, 1.5, 0, 0.9, -0.25));
@@ -84,6 +85,9 @@ ok(/te llevo/.test(s.plan?.texto || ''), 'de día, la pista ofrece llevarte: ' +
 await ev(() => { window.__unake.fase = 'fumar'; window.__unake.accionHistoria(); });
 await pag.waitForFunction(() => window.__unake.barrio.salaId === 'dentro', null, { timeout: 30000 });
 await libre(); await pag.waitForTimeout(1500);
+// hablar = tocar: entrar ya no basta si le ves; se le toca (y se cierra su oferta de minijuegos)
+await ev(() => { const J = window.__unake; J.hablarCon('lasslow'); J.obj().ui.quitarTarjetas(); J.charla = false; });
+await pag.waitForTimeout(600); await libre(); await pag.waitForTimeout(600);
 s = await ev(() => { const o = window.__unake.motor.objetivos(); return { hecho: o.todos[0]?.hecho, actual: o.historia?.id }; });
 ok(s.hecho, 'la ★ te lleva a la barra y Lasslow cuenta: ' + JSON.stringify(s));
 await foto('dia-barra');

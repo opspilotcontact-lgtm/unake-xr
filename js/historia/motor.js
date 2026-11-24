@@ -24,6 +24,7 @@ export { CLAVE_PARTIDA };
 // ---------- lo que hay hoy en el XR ----------
 // Si un minijuego está en NATIVOS, la historia lo juega en VR aunque también esté en la recreativa.
 // En su punto NO: en la Quest iba fatal (24/11); se juega en la máquina.
+// Los que llegan después (js/barrio/lugares.js → prepararNativos) se apuntan aquí solos si su módulo existe.
 export const NATIVOS = { Pipas: 'pipas', TiroPato: 'tiropato', Cuentas: 'cuentas', Casetas: 'casetas', Amarillo: 'amarillo', Furgo: 'furgo', Control: 'control' };
 // Copia de JUEGOS_2D (js/recreativa.js); la prueba historia.mjs comprueba que coinciden.
 export const RECREATIVA = ['Cuentas', 'Tarta', 'Barra', 'Lasslow', 'Periquito', 'Inspeccion', 'Aires', 'Palo', 'Sigilo',
@@ -136,6 +137,24 @@ export class MotorHistoria {
     this.d.negocio();
     this.guardar();
   }
+  // El monedero de las apuestas (base/js/apuestas.js): apostar y cobrar monchis de verdad, con las stats del 2D.
+  // info: { juego: 'tragaperras'|'carrera', tipo ('gordo'|'tres'…), gana, apostado, cuota }
+  monedero() {
+    const m = this;
+    return {
+      get valor() { return m.E.monchis; },
+      apostar(n) { n = Math.max(0, Math.round(n || 0)); if (m.E.monchis < n) return false; m.E.monchis -= n; m.sumar('apuestas'); m.sumar('apostado', n); m.guardar(); m.emitir?.('alCambiar', { tipo: 'apuesta' }); return true; },
+      cobrar(n, info = {}) {
+        n = Math.max(0, Math.round(n || 0)); m.E.monchis += n;
+        const ap = info.apostado || 0;
+        if (n > ap) { m.sumar('apuestasGanadas'); m.sumar('monchisGanados', n - ap); } else if (n === 0) m.sumar('apuestasPerdidas');
+        if (info.tipo === 'gordo') m.sumar('premioGordo');
+        if (info.tipo === 'tres' || info.tipo === 'gordo') m.sumar('tresIguales');
+        if (info.juego === 'carrera') { m.sumar('carreras'); if (info.gana) { m.sumar('carrerasGanadas'); if ((info.cuota || 0) >= 5) m.sumar('batacazo'); } }
+        m.guardar(); m.emitir?.('alCambiar', { tipo: 'apuesta' });
+      },
+    };
+  }
   guardar() { try { this.d.guardarPartida(); } catch (e) { console.warn('[historia] guardar', e.message); } }
   reiniciar() { this.d.reemplazarEstado(this.d.partidaNueva()); this.preparar(); this.emitir('alCambiar', { tipo: 'reinicio' }); this.tic(); }
 
@@ -213,6 +232,9 @@ export class MotorHistoria {
   }
   _accionViva(a) {
     if (!a) return null;
+    // los nativos se descubren al arrancar (lugares.js → prepararNativos): una misión que se escribió como
+    // «recreativa» pasa a jugarse en VR en cuanto existe su módulo
+    if (a.tipo === 'recreativa' && NATIVOS[a.clave]) a = { ...a, tipo: 'nativo', id: NATIVOS[a.clave] };
     const E = this.E;
     if (a.tipo === 'hucha') {
       const falta = Math.max(0, a.meta - E.hucha);
@@ -240,7 +262,14 @@ export class MotorHistoria {
   avisar(tipo, x = {}) {
     const E = this.E;
     switch (tipo) {
-      case 'minijuego': this.cobrar(x); break;
+      case 'minijuego':
+        // escenas/farol.js → final(): ganarle a Palicaso devuelve lo que faltaba de la caja a la hucha y quita el precinto
+        if (x.clave === 'Farol' && x.gana && E.faltaCaja) {
+          const falta = E.faltaCaja;
+          E.hucha = Math.min(this.d.META_HUCHA, (E.hucha || 0) + falta); E.faltaCaja = 0; E.precinto = false;
+          this.emitir('alCobro', { situacion: `Palicaso devuelve lo de la caja: +${falta} a la hucha (${E.hucha}/${this.d.META_HUCHA}).` });
+        }
+        this.cobrar(x); break;
       case 'liar': this.sumar('liados'); E.porroContado = false; break;
       case 'calada':
         this.sumar('caladas');
@@ -363,6 +392,8 @@ export class MotorHistoria {
     const n = d.negocio(), c = d.cuentasNegocio(), max = d.nivelMaxPorCapitulo(this.E.capitulo);
     return {
       caja: Math.floor(n.caja), bolsitas: Math.floor(n.bolsitas), rango: c.rango, total: c.total, porMin: c.porMin, siguiente: d.rangoSiguiente(c.total),
+      tope: c.tope, clientes: c.clientes, aforo: c.aforo,
+      meta: d.METAS_NEGOCIO[n.metas] ? { texto: d.METAS_NEGOCIO[n.metas].texto, premio: d.METAS_NEGOCIO[n.metas].premio } : null,
       mejoras: d.MEJORAS_NEGOCIO.map(m => ({ id: m.id, nombre: m.nombre, desc: m.desc, nivel: d.nivelNegocio(m.id), max, precio: d.precioMejora(m), puede: d.nivelNegocio(m.id) < max && this.E.monchis >= d.precioMejora(m) })),
     };
   }

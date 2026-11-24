@@ -84,6 +84,9 @@ export class Guia {
     if (e.enBar && salas.includes('dentro')) {
       if (recoger) return { de: 'lasslow', texto: 'Lo que brilla, aquí en el bar: cógelo con la mano.' };
       const quien = con.filter(c => c !== 'lasslow' && c !== 'blancaso').map(c => NOMBRES[c] || c);
+      // Palicaso y la Pompa están en el propio bar: se les habla tocándoles
+      const enElBar = con.filter(c => e.enBarGente?.includes(c)).map(c => NOMBRES[c] || c);
+      if (enElBar.length && enElBar.length === quien.length) return { de: 'lasslow', texto: `${lista(enElBar)}, aquí en la barra: acércate y tócale${enElBar.length > 1 ? 's' : ''}.` };
       if (quien.length) return { de: 'lasslow', texto: `${lista(quien)}, en la barra. Toca la ★ de tu muñeca y vamos.` };
     }
     const metas = salas.filter(s => !(e.enBar && s === 'dentro'));
@@ -100,6 +103,10 @@ export class Guia {
     this.pendiente = { motivo, en: this.t + retraso };
   }
   registrar() { this.tUltima = this.t; }
+  // Dar vueltas: si estás jugando o paseando a tu aire (otro minijuego, otra sala, charlando), la guía se calla un
+  // rato: nada de pistas por estar «quieto»; solo la del cambio de objetivo. El hilo y la ★ siguen ahí.
+  jugandoLibre(seg = 150) { this.libreHasta = Math.max(this.libreHasta || 0, this.t + seg); }
+  get aSuAire() { return this.t < (this.libreHasta || 0); }
   refrescar() { this.cada = 0; this.cadaAplicar = 0; } // algo ha cambiado (has cogido algo): hilo y máquina ya // alguien ya ha dado una pista (el motor, una reacción)
   pistaYa(motivo = 'forzada') {
     const o = this.motor.objetivos().historia, p = this.plan(o);
@@ -137,12 +144,13 @@ export class Guia {
     if (this.cadaAplicar <= 0) { this.cadaAplicar = 2; this._aplicar(this.plan(o)); }
     if (!e.libre) return;
     const desde = this.t - this.tUltima;
+    if (this.pendiente && this.aSuAire && this.pendiente.motivo !== 'cambio') this.pendiente = null;
     if (this.pendiente && this.t >= this.pendiente.en && desde > (this.pendiente.motivo === 'cambio' ? MIN_CAMBIO : MIN_PISTA)) {
       const motivo = this.pendiente.motivo; this.pendiente = null;
       this.pistaYa(motivo); return;
     }
     if (this.pendiente && this.pendiente.motivo !== 'cambio' && this.t > this.pendiente.en + 5) this.pendiente = null; // ya pasó su momento
-    if (e.encargo) return; // con un encargo en la mano, el encargo manda
+    if (e.encargo || this.aSuAire) return; // con un encargo en la mano, el encargo manda; a tu aire, nadie te persigue
     const quieto = this.repes >= 2 ? QUIETO_LARGO : QUIETO;
     if (this.t - Math.max(this.tAvance, this.tUltima) > quieto && desde > MIN_PISTA) { this.repes++; this.pistaYa('quieto'); }
   }

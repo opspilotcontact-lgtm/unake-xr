@@ -42,8 +42,13 @@ const NOMBRES = [
   'totalCapitulos', 'nuevaSituacion', 'completarSituacion', 'estrellasDe', 'apuntar', 'vecesSeguidas',
   'multiplicadorRepeticion', 'apuntarRepeticion', 'enMundoHumo', 'negocio', 'cuentasNegocio', 'actualizarNegocio',
   'precioMejora', 'nivelNegocio', 'nivelMaxPorCapitulo', 'rangoSiguiente', 'bonoDeco', 'bonoArmario',
-  'aplicarModPartida', 'guardarPartida',
+  'aplicarModPartida', 'guardarPartida', 'ARMARIO', 'LOGROS',
 ];
+
+// lugares.js  LUGARES_MINIJUEGO, OBJETOS_LUGAR, DUENOS, lugaresDe (dónde vive cada minijuego y cuándo se abre)
+// rutinas.js  ACTIVIDADES, VISITAS (la gente se mueve)   encuentros.js  DIALOGOS, TONTERIAS (hablan solos)
+// (las funciones vivas que dependen del capítulo se llaman con p.ev en el momento: dialogosDisponibles, capId…)
+const OPCIONALES = ['LUGARES_MINIJUEGO', 'OBJETOS_LUGAR', 'DUENOS', 'lugaresDe', 'ACTIVIDADES', 'VISITAS', 'DIALOGOS', 'TONTERIAS'];
 
 // Crea (o reutiliza) el puente y devuelve los datos vivos del 2D. `puente`: uno ya creado CON clavePartida.
 export async function cargarDatos({ puente = null, opcionesPuente = {} } = {}) {
@@ -58,6 +63,8 @@ export async function cargarDatos({ puente = null, opcionesPuente = {} } = {}) {
   for (const n of NOMBRES) {
     try { d[n] = p.ev(n); } catch (e) { throw new Error(`[historia] el 2D ya no tiene «${n}»: ${e.message}`); }
   }
+  // El mundo vivo (lugares.js, rutinas.js, encuentros.js del 2D): opcionales, sin ellos el barrio sigue (más quieto).
+  for (const n of OPCIONALES) { try { d[n] = p.ev(n); } catch { d[n] = null; } }
   // El ESTADO se lee SIEMPRE en el momento: el 2D puede reasignarlo (nueva partida).
   d.estado = () => p.ev('ESTADO');
   d.reemplazarEstado = obj => { p.win.__estadoNuevo = obj; p.ev('ESTADO = window.__estadoNuevo; delete window.__estadoNuevo;'); };
