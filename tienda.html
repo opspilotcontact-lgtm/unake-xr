@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>UNAKÉ XR · tienda y hucha</title>
+<link href="https://fonts.googleapis.com/css2?family=Caprasimo&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff3e6; font-family: system-ui, sans-serif; }
+  #lienzo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  [hidden] { display: none !important; }
+  #portada { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: rgba(18,12,31,.86); z-index: 5; }
+  #portada h1 { font-family: 'Caprasimo', serif; font-weight: 400; font-size: 52px; margin: 0; color: #ffd6ea; }
+  #portada button { font-family: 'Caprasimo', serif; font-size: 22px; padding: 12px 22px; border: 3px solid #1a0f24; background: #ffe066; color: #1a0f24; box-shadow: 0 5px 0 #1a0f24; cursor: pointer; }
+  #portada button:disabled { opacity: .4; }
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","iwer":"https://cdn.jsdelivr.net/npm/iwer@2.8.0/build/iwer.module.min.js","@iwer/devui":"https://cdn.jsdelivr.net/npm/@iwer/devui@2.8.0/build/iwer-devui.module.min.js","@iwer/sem":"https://cdn.jsdelivr.net/npm/@iwer/sem@2.8.0/build/es-min/index.min.js"}}</script>
+</head>
+<body>
+<canvas id="lienzo"></canvas>
+<section id="portada"><h1>La tienda de 24 h</h1>
+  <div><button id="btnAR" disabled>Entrar</button> <button id="btnVR" disabled>Solo VR</button> <button id="btnPC">Ver en el PC</button></div>
+</section>
+<script type="module">
+  // Prueba suelta de js/barrio/tienda.js y js/barrio/hucha.js con un motor FALSO (misma API que js/historia/motor.js:
+  // tienda(), comprar(id), aportar(n), monchis, hucha, metaHucha, d.META_HUCHA, necesidades()) y 300 monchis.
+  const q = new URLSearchParams(location.search);
+  if (q.has('emular')) await import('./js/emulador.js');
+  const v = q.get('v') ? '?v=' + q.get('v') : '';
+  const THREE = await import('three');
+  const { montarXR } = await import('./js/xr.js' + v);
+  const { UI } = await import('./js/ui.js' + v);
+  const { Fisica, Agarre } = await import('./js/fisica.js' + v);
+  const { prepararAudio, sonido, letraLista, fijarAnisotropia } = await import('./js/recursos.js'); // sin ?v: el mismo módulo que usan tienda.js y hucha.js
+  const { Tienda } = await import('./js/barrio/tienda.js' + v);
+  const { Hucha } = await import('./js/barrio/hucha.js' + v);
+  const $ = id => document.getElementById(id);
+
+  // ---------- motor falso (copia la lógica de motor.js con la TIENDA del 2D) ----------
+  const TIENDA = [
+    { id: 'patatas', nombre: 'Patatas (salado)', precio: 15, efecto: 'Hambre −40', hambre: 40 },
+    { id: 'kebab', nombre: 'Kebab de madrugada', precio: 30, efecto: 'Hambre −80 · Vida +10', hambre: 80, vida: 10 },
+    { id: 'caramelo', nombre: 'Caramelo (dulce)', precio: 10, efecto: 'Hambre −20 · Vida +10', hambre: 20, vida: 10 },
+    { id: 'lata', nombre: 'Resucitador', precio: 20, efecto: 'Vida +45 · te despeja un poco', vida: 45, colocon: -10 },
+    { id: 'papel', nombre: 'Papel de liar', precio: 8, efecto: 'Para liar (uno)' },
+    { id: 'mechero', nombre: 'Mechero', precio: 15, efecto: 'Para encender (te dura siempre)' },
+  ];
+  const E = { monchis: 300, hucha: 0, hambre: 60, vida: 70, colocon: 40, inv: { papel: 0, mechero: false, bolsita: 0 } };
+  const motor = {
+    E, d: { META_HUCHA: 1000, TIENDA, PRECIO_BOLSITA: 30 },
+    get monchis() { return E.monchis; }, get hucha() { return E.hucha; }, get metaHucha() { return this.d.META_HUCHA; },
+    necesidades() { return { hambre: E.hambre, vida: E.vida, monchis: E.monchis, hucha: E.hucha, inv: { ...E.inv } }; },
+    aportar(n) { const c = Math.max(0, Math.min(n ?? E.monchis, E.monchis, this.d.META_HUCHA - E.hucha)); E.monchis -= c; E.hucha += c; return c; },
+    tienda() {
+      return [...TIENDA.map(p => ({ id: p.id, nombre: p.nombre, precio: p.precio, efecto: p.efecto, tengo: p.id === 'mechero' ? !!E.inv.mechero : undefined })),
+        { id: 'bolsita', nombre: 'La bolsita (Palicaso, en la barra)', precio: 30, efecto: 'Para liar' }]
+        .map(p => ({ ...p, puede: E.monchis >= p.precio && !(p.id === 'mechero' && E.inv.mechero) }));
+    },
+    comprar(id) {
+      const p = id === 'bolsita' ? { id, precio: 30 } : TIENDA.find(x => x.id === id);
+      if (!p) return { ok: false, motivo: 'no existe' };
+      if (id === 'mechero' && E.inv.mechero) return { ok: false, motivo: 'ya lo tienes' };
+      if (E.monchis < p.precio) return { ok: false, motivo: 'sin monchis', faltan: p.precio - E.monchis };
+      E.monchis -= p.precio; let efecto = {};
+      if (id === 'bolsita') E.inv.bolsita++; else if (id === 'papel') E.inv.papel++; else if (id === 'mechero') E.inv.mechero = true;
+      else { E.hambre = Math.max(0, E.hambre - (p.hambre || 0)); E.vida = Math.min(100, E.vida + (p.vida || 0)); if (p.colocon) { E.colocon = Math.max(0, E.colocon + p.colocon); efecto = { colocon: p.colocon }; } }
+      return { ok: true, efecto };
+    },
+  };
+
+  // ---------- escena de prueba ----------
+  const renderer = new THREE.WebGLRenderer({ canvas: $('lienzo'), antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.xr.enabled = true;
+  fijarAnisotropia(renderer.capabilities.getMaxAnisotropy());
+  const escena = new THREE.Scene(); escena.background = new THREE.Color('#2c2a48');
+  const camara = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.02, 80); camara.position.set(0, 1.6, 0); escena.add(camara);
+  const oyente = new THREE.AudioListener(); camara.add(oyente);
+  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camara.aspect = innerWidth / innerHeight; camara.updateProjectionMatrix(); });
+  escena.add(new THREE.GridHelper(12, 24, '#6a6a88', '#46445e'));
+  const ui = new UI(escena);
+  const xr = montarXR(renderer, escena, camara, { alEntrar: () => { $('portada').hidden = true; }, alSalir: () => { $('portada').hidden = false; }, aviso: t => console.warn(t) });
+  const fisica = new Fisica(), agarre = new Agarre(fisica);
+  await letraLista();
+  // en el PC, una bolita por mano para ver dónde está (en las gafas ya se ven tus manos)
+  if (!navigator.xr || q.has('pc')) for (const [m, c] of [[xr.manos.derecha, '#ff5fa2'], [xr.manos.izquierda, '#5fd3ff']]) m.grupo.add(new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 8), new THREE.MeshBasicMaterial({ color: c })));
+
+  // la «sala»: un grupo girado y desplazado, como las del barrio, para probar las coordenadas locales
+  const sala = new THREE.Group(); sala.position.set(0.2, 0, -0.1); sala.rotation.y = 0.3; escena.add(sala);
+  const tu = sala.worldToLocal(new THREE.Vector3(0, 0, 0));
+  const tienda = new Tienda({ motor, sonido, ui, agarre, xr });
+  const hucha = new Hucha({ motor, sonido, ui, xr });
+  const T = window.__t = { THREE, motor, tienda, hucha, xr, ui, escena, camara, renderer, sala, t: 0, bot: null, botFin: false, fotoPedida: null, comidas: [], llenos: [], frases: [], colocon: 40 };
+  tienda.alComer = (ef, p) => { T.comidas.push({ id: p.id, efecto: ef }); T.colocon += ef.colocon || 0; };
+  hucha.alLlenar = (l, info) => T.llenos.push({ linea: l, ...info });
+  hucha.alHablar = l => T.frases.push(l);
+  // mostrador delante (a 0,65 m), hucha a la derecha
+  const posT = sala.worldToLocal(new THREE.Vector3(-0.15, 0, -0.65));
+  await tienda.montar(sala, posT, tu);
+  await hucha.montar(sala, sala.worldToLocal(new THREE.Vector3(0.75, 0, -0.55)));
+  hucha.setMeta(q.get('meta') ? +q.get('meta') : null);
+
+  T.mirar = (x, y, z, yaw = 0, pitch = 0) => { camara.position.set(x, y, z); camara.rotation.set(pitch, yaw, 0, 'YXZ'); };
+  T.arrancarPC = () => { $('portada').hidden = true; };
+  T.llamadas = () => renderer.info.render.calls;
+  T.listo = true;
+  $('btnPC').onclick = () => T.arrancarPC();
+  $('btnAR').onclick = () => { prepararAudio(oyente); xr.entrar('ar'); };
+  $('btnVR').onclick = () => { prepararAudio(oyente); xr.entrar('vr'); };
+  navigator.xr?.isSessionSupported('immersive-ar').then(s => { $('btnAR').disabled = !s; }).catch(() => { });
+  navigator.xr?.isSessionSupported('immersive-vr').then(s => { $('btnVR').disabled = !s; }).catch(() => { });
+
+  const reloj = new THREE.Clock();
+  renderer.setAnimationLoop((t, frame) => {
+    const dt = Math.min(0.05, reloj.getDelta()); T.t += dt;
+    if (xr.sesion) xr.paso(frame, dt);
+    else {
+      xr.cabeza.copy(camara.position); xr.cabezaQ.copy(camara.quaternion); xr.adelante.set(0, 0, -1).applyQuaternion(camara.quaternion);
+      if (T.bot) { try { T.bot(dt, xr.manos); } catch (e) { console.error('bot', e); T.bot = null; } }
+    }
+    const manos = [xr.manos.derecha, xr.manos.izquierda];
+    try {
+      agarre.actualizar(dt, manos);
+      fisica.actualizar(dt);
+      tienda.actualizar(dt, manos);
+      hucha.actualizar(dt, manos);
+      ui.actualizar(dt, xr.cabeza, xr.cabezaQ, manos);
+    } catch (e) { if (!T._err) { T._err = true; console.error('[tienda]', e); } }
+    renderer.render(escena, camara);
+  });
+</script>
+</body>
+</html>

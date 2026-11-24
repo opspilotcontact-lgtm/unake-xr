@@ -43,7 +43,7 @@ const nat = clave => ({ como: 'nativo', accion: { tipo: 'nativo', id: NATIVOS[cl
 const rec = clave => NATIVOS[clave] ? nat(clave) : { como: 'recreativa', accion: { tipo: 'recreativa', clave } };
 const hucha = meta => ({ como: 'gafas', accion: { tipo: 'hucha', meta }, ayuda: 'Aporta tus monchis a la hucha de Blancaso' });
 export const EQUIV_OBJETIVOS = {
-  'una-que#0': { como: 'equivalente', ayuda: 'Aún no hay encargos de la tienda: gana monchis en cualquier minijuego', cumple: s => s.stat('victorias') >= 1 || s.stat('entregas') >= 1, accion: { tipo: 'menu' } },
+  'una-que#0': { como: 'barrio', ayuda: 'En la tienda de 24 h, toca el tablón de ENCARGOS y lleva el pedido', cumple: s => s.stat('victorias') >= 1 || s.stat('entregas') >= 1, accion: { tipo: 'barrio', salas: ['tienda'] } },
   'una-que#1': { como: 'gafas', ayuda: 'Contraseña y empuja la puerta', accion: { tipo: 'puerta' } },
   'una-que#2': { como: 'gafas', ayuda: 'Lía y da una calada', accion: { tipo: 'fumar' } },
   'cuota#0': { ...rec('Barra'), ayuda: 'Sirve la barra (buscar las cajas por el barrio se salta en el XR)' },

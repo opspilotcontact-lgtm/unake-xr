@@ -36,7 +36,7 @@ export const CLAVE_PARTIDA = 'unake-xr-partida';
 const NOMBRES = [
   'CAPITULOS', 'META_HUCHA', 'OBJETOS_RECADO', 'CHARLAS_CAP', 'DIALOGOS_CAP', 'CONTENIDO_CAPITULOS', 'SITUACIONES', 'NOCHES',
   'FONDO_CAPITULO', 'CARTELAS', 'ESTADO_INICIAL', 'MISIONES', 'PAGO_ESTRELLAS', 'UMBRAL_HUMO', 'INVENTOS',
-  'MEJORAS_NEGOCIO', 'METAS_NEGOCIO', 'TIENDA', 'PRECIO_BOLSITA', 'SALAS_BOQUILLA',
+  'MEJORAS_NEGOCIO', 'METAS_NEGOCIO', 'TIENDA', 'PRECIO_BOLSITA', 'SALAS_BOQUILLA', 'SALUDOS', 'CHARLAS', 'DESTINOS', 'PEDIDOS',
   'nuevaTarea', 'tareaCumplida', 'recogerDeTarea', 'conDeTarea', 'quienDicePista', 'textoPista', 'progresoTarea',
   'mundoDeTarea', 'objetoDeTarea', 'normalizarCapitulo', 'capIdx', 'sumarStat', 'stat', 'desdeCap', 'etiquetaCap',
   'totalCapitulos', 'nuevaSituacion', 'completarSituacion', 'estrellasDe', 'apuntar', 'vecesSeguidas',

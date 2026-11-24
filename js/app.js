@@ -15,10 +15,13 @@ import { prepararAudio, sonido, musica, letraLista, fijarAnisotropia, precargarS
 import { activarMicro, leerMicro, hayMicro } from './microfono.js';
 import { ManosVisibles } from './manos_visibles.js';
 import { Portales } from './barrio/portales.js';
+import { Encargos, nombreDe } from './barrio/encargos.js';
+import { Tienda } from './barrio/tienda.js';
+import { Hucha } from './barrio/hucha.js';
 import { Fisica, Agarre } from './fisica.js';
 import { Viaje } from './viaje.js';
 import { Recreativa } from './recreativa.js';
-import { MotorHistoria } from './historia/motor.js';
+import { MotorHistoria, NATIVOS } from './historia/motor.js';
 import { Escenas } from './historia/escenas.js';
 import { MunecaHistoria } from './historia/muneca.js';
 
@@ -67,6 +70,7 @@ const xr = montarXR(renderer, escena, camara, { alEntrar, alSalir, aviso });
 const manos = () => [xr.manos.derecha, xr.manos.izquierda];
 const manosV = new ManosVisibles(escena, xr);
 const portales = new Portales({ sonido: (n, o) => sonido(n, o) }); // puertas entre salas y «sigue el humo»
+const encargos = new Encargos({ img, sonido: (n, o) => sonido(n, o) }); // el tablón de la tienda y el pedido en tu mano
 // la chuleta de cada fase (encima de cada mano; se ve al cambiar y al mirarte la mano de cerca)
 const AYUDAS_FASE = {
   contrasena: { gatillo: 'Tocar una tarjeta', mano: { pellizco: 'Tocar una tarjeta' } },
@@ -107,6 +111,9 @@ Object.defineProperty(J, 'barrio', { get: () => B });
 J.entrarSala = id => entrarSala(id);
 J.salirSala = m => salirSala(m);
 J.portales = () => portales;
+J.encargos = () => encargos;
+J.empezarEncargo = r => empezarEncargo(r || 0);
+J.hablarCon = id => { const r = B.gente.find(x => x.id === id); if (r) hablarCon(r); return !!r; };
 J.cruzar = d => cruzar(d);
 J.ocupadoHistoria = () => !!escenasH?.ocupada;
 J.abrirMenu = () => abrirMenu();
@@ -211,6 +218,7 @@ const libreParaHistoria = () => ['liar', 'fumar', 'encender'].includes(J.fase) &
   && !J.vuela && !J.transicion && !J.minijuego && !J.menu && !escenasH?.ocupada && !recreativa?.enUso;
 function accionHistoria(a) {
   const r = motor.hacer(a); if (!r) return;
+  if (J.fase === 'barrio' && (r.tipo === 'recreativa' || r.tipo === 'nativo')) return jugarDesdeSala(r.clave);
   if (r.tipo === 'recreativa') return irALaMaquina(r.clave);
   if (r.tipo === 'nativo') return jugarMinijuego(r.id);
   if (r.tipo === 'barrio') {
@@ -637,7 +645,7 @@ const MINIJUEGOS = [
 ];
 // Menú de la muñeca: una sola fila. Lo que manda es la historia (★); lo demás, a mano.
 async function abrirMenu(sub = null) {
-  if ((J.menu && !sub) || J.minijuego || J.transicion || J.calada || J.enManos || J.vuela) return;
+  if ((J.menu && !sub) || (J.minijuego && J.minijuego.id !== 'barrio') || J.transicion || J.calada || J.enManos || J.vuela) return;
   J.menu = true; ui.quitarTarjetas();
   const f = xr.adelante.clone().setY(0).normalize();
   const c = xr.cabeza.clone().addScaledVector(f, 0.42); c.y = xr.cabeza.y - 0.22;
@@ -659,7 +667,7 @@ async function abrirMenu(sub = null) {
       if (texto === 'Minijuegos') return abrirMenu('minijuegos');
       cerrar();
       if (texto.startsWith('★ ')) return accionHistoria(oh.accion);
-      if (texto === 'Mapa') abrirBarrio();
+      if (texto === 'Mapa') { if (J.fase === 'barrio') salirSala(true); else abrirBarrio(); }
     });
   }
   clearTimeout(abrirMenu._t);
@@ -689,7 +697,9 @@ async function jugarMinijuego(id) {
   { const f = xr.adelante.clone().setY(0).normalize(), lat = new THREE.Vector3(-f.z, 0, f.x);
     [lasslow, blancaso].forEach((p, i) => p.grupo.position.copy(xr.cabeza).setY(0).addScaledVector(f, 0.5).addScaledVector(lat, (i ? 1 : -1) * 1.15)); }
   const ctx = {
-    THREE, escena, xr, humo, ui, fisica, agarre, sonido, musica, textura, img, Recortable, nivel: 1,
+    THREE, escena, xr, humo, ui, fisica, agarre, sonido, musica, textura, img, Recortable,
+    // el nivel del 2D de ese minijuego (sube con las estrellas: nivelDe() de comun.js)
+    nivel: (() => { try { return motor?.d?.puente?.ev(`nivelDe(${JSON.stringify(mod.clave)})`) || 1; } catch { return 1; } })(),
     hucha: n => { J.hucha = (J.hucha || 0) + n; }, // hasta que el motor de historia lleve la hucha del 2D
     get modo() { return J.modo; },
     delante: (d = 1, alto = null) => { const f = xr.adelante.clone().setY(0).normalize(); const q = xr.cabeza.clone().addScaledVector(f, d); q.y = alto ?? 0; return q; },
@@ -833,19 +843,137 @@ async function entrarSala(id) {
       escena.add(nueva.grupo); nueva.actualizarProyector();
       if (portales.metas?.includes(id)) portales.guia(null); // has llegado a donde te llevaba el humo
       portales.montar(nueva.grupo, nueva.medidas, id);
+      if (id === 'tienda') encargos.montarTablon(nueva.grupo, new THREE.Vector3(Math.max((nueva.medidas?.xl ?? -2) + 0.35, -1.7), 0, -1.1));
+      else encargos.quitarTablon();
+      montarCosasSala(id, nueva, def);
       motor?.avisar('sala', { id, gente: gente.map(r => r.id === 'la-pompa' ? 'pompa' : r.id) });
       for (const r of gente) { r.grupo.position.copy(nueva.grupo.localToWorld(r.userData.local.clone())); escena.add(r.grupo); }
       escena.background = new THREE.Color('#1a1426');
       fisica.planos = []; xr.permitirMovimiento(true);
       ok();
     }));
-    setTimeout(() => {
-      const f = xr.adelante.clone().setY(0).normalize(), lado = new THREE.Vector3(-f.z, 0, f.x);
-      const c = xr.cabeza.clone().addScaledVector(f, 0.5).addScaledVector(lado, -0.15); c.y = xr.cabeza.y - 0.3;
-      ui.tarjetasEn(['A la maqueta', J.mundo === 'humo' ? 'A Unaké' : 'A casa'], c, f.clone().negate(), t => (t === 'A la maqueta' ? salirSala(true) : salirSala(false)));
-    }, 900);
+    setTimeout(tarjetasSala, 900);
   } catch (e) { console.error('[barrio] entrar', id, e); }
   B.ocupado = false;
+}
+// las dos tarjetas de siempre en una sala (a la cintura, a un lado)
+function tarjetasSala() {
+  if (J.fase !== 'barrio' || !B.sala || J.charla) return;
+  const f = xr.adelante.clone().setY(0).normalize(), lado = new THREE.Vector3(-f.z, 0, f.x);
+  // a tu izquierda, de lado: que no tapen lo que hay delante (el mostrador, la gente)
+  const c = xr.cabeza.clone().addScaledVector(f, 0.28).addScaledVector(lado, -0.45); c.y = xr.cabeza.y - 0.3;
+  ui.tarjetasEn(['Mapa', J.mundo === 'humo' ? 'A Unaké' : 'A casa'], c, xr.cabeza.clone().setY(c.y).sub(c).normalize(), t => (t === 'Mapa' ? salirSala(true) : salirSala(false)));
+}
+
+// ---------- la gente de cada sala: tocarla (o señalarla y pellizcar) = te habla y te ofrece lo suyo ----------
+// Las frases son las del 2D (SALUDOS y CHARLAS de escenas/barrio.js, leídas por el motor).
+const MISION_DE = { palicaso: 'Barra', cotine: 'Tarta', lasslow: 'Lasslow', perico: 'Pipas' };
+const NOMBRE_DE = { palicaso: 'Palicaso', cotine: 'Cotine', lasslow: 'Lasslow', perico: 'Perico', pompa: 'La Pompa', puky: 'Puky', blancaso: 'Blancaso' };
+function pasoGente(dt, ms) {
+  J._esperaGente = Math.max(0, (J._esperaGente || 0) - dt);
+  if (J.fase !== 'barrio' || !B.sala || B.ocupado || J.menu || J.charla || escenasH?.ocupada || J._esperaGente > 0) return;
+  const rayo = new THREE.Raycaster(); rayo.far = 6;
+  for (const r of B.gente) {
+    const p = r.grupo.position;
+    for (const m of ms) {
+      if (!m.activa) continue;
+      let toca = Math.hypot(m.punta.x - p.x, m.punta.z - p.z) < 0.3 && m.punta.y > 0.3 && m.punta.y < 2.2;
+      if (!toca && m.empiezaPinza) {
+        const dir = m.esMano ? m.punta.clone().sub(xr.cabeza).normalize() : new THREE.Vector3(0, 0, -1).applyQuaternion(m.quat);
+        rayo.set(m.esMano ? xr.cabeza : m.pos, dir);
+        toca = rayo.intersectObject(r.grupo, true).length > 0;
+      }
+      if (toca) { m.vibrar(0.4, 40); J._esperaGente = 2.5; return hablarCon(r); }
+    }
+  }
+}
+function hablarCon(r) {
+  const id = r.id === 'la-pompa' ? 'pompa' : r.id, d = motor?.d;
+  motor?.avisar('hablar', { con: id });
+  if (encargos.actual?.destino.id === id) return entregarEncargo(r, id);
+  const lineas = d?.SALUDOS?.[id]?.[J.mundo] || d?.SALUDOS?.[id]?.humo || d?.CHARLAS?.[J.mundo]?.[id] || ['…'];
+  const linea = sinRepetir('saludo-' + id, lineas);
+  r.decir(linea, { dur: 3.5 });
+  // de lejos el bocadillo se lee mal: la frase también en la cartela
+  if (r.grupo.position.distanceTo(xr.cabeza) > 1.4) ui.cartela(`${NOMBRE_DE[id] || id}: «${linea}»`, 3.5);
+  sonido('pop', { volumen: 0.3 });
+  const clave = MISION_DE[id];
+  if (!clave) return;
+  const nombre = d?.MISIONES?.[clave]?.nombre || clave;
+  const oh = motor?.objetivos()?.historia, esMision = oh?.accion?.clave === clave;
+  J.charla = true;
+  const haciaEl = r.grupo.position.clone().sub(xr.cabeza).setY(0).normalize();
+  const c = xr.cabeza.clone().addScaledVector(haciaEl, 0.45); c.y = xr.cabeza.y - 0.34; // por debajo de su cara
+  const jugar = (esMision ? '★ ' : '') + 'Jugar: ' + nombre;
+  ui.tarjetasEn([jugar, 'Ahora no'], c, haciaEl.clone().negate(), t => {
+    J.charla = false; ui.quitarTarjetas();
+    if (t === jugar) jugarDesdeSala(clave); else tarjetasSala();
+  });
+  setTimeout(() => { if (J.charla) { J.charla = false; ui.quitarTarjetas(); tarjetasSala(); } }, 10000);
+}
+// ---------- la tienda de 24 h y la hucha de Blancaso (js/barrio/tienda.js, hucha.js) ----------
+function quitarCosasSala() { B.tienda?.quitar(); B.tienda = null; B.hucha?.quitar(); B.hucha = null; }
+function montarCosasSala(id, sala, def) {
+  quitarCosasSala();
+  if (!motor) return;
+  if (id === 'tienda') {
+    const t = new Tienda({ motor, sonido, ui, agarre, xr });
+    t.alComer = e => { J.colocon = Math.max(0, J.colocon + (e?.colocon || 0)); };
+    B.tienda = t;
+    t.montar(sala.grupo, new THREE.Vector3(0.2, 0, -0.8), new THREE.Vector3(0, 0, 0)).then(() => { t.lista = true; }).catch(e => console.error('[tienda]', e));
+  }
+  if (id === 'plaza' && def.sitios?.blancaso) {
+    const h = new Hucha({ motor, sonido, ui, xr });
+    const [bx, by] = def.sitios.blancaso;
+    const habla = l => { const b = B.gente.find(r => r.id === 'blancaso'); if (b && l) b.decir(l, { dur: 3.5 }); else if (l) ui.cartela('Blancaso: «' + l + '»', 3.5); };
+    h.alLlenar = habla; h.alHablar = habla;
+    B.hucha = h;
+    h.montar(sala.grupo, sala.sueloDe(bx - 110, by + 12)).then(() => {
+      h.lista = true;
+      const a = motor.objetivos()?.historia?.accion; if (a?.tipo === 'hucha' && a.meta) h.setMeta(a.meta);
+    }).catch(e => console.error('[hucha]', e));
+  }
+}
+
+// ---------- encargos de la tienda (los del 2D) ----------
+function pasoEncargos(dt, ms) {
+  const ev = encargos.actualizar(dt, ms, xr.cabeza, xr.manos.izquierda);
+  if (ev === 'tablon' && J.fase === 'barrio' && B.salaId === 'tienda' && !J.charla && !B.ocupado) empezarEncargo(0);
+  if (ev === 'fallo') { portales.guia(null); ui.cartela('¡Se ha enfriado! Vuelve a la tienda a por otro encargo.', 4); }
+}
+function empezarEncargo(racha) {
+  const d = motor?.d;
+  const e = encargos.pedir(d?.DESTINOS || [], d?.PEDIDOS || [], B.salaId, racha, J.mundo);
+  if (!e) { ui.cartela('Ahora no hay encargos.', 2.5); return; }
+  portales.guia([e.destino.sala]);
+  ui.cartela(`Lleva ${e.pedido.nombre} a ${nombreDe(e.destino.id)}. Sigue el hilo de humo.`, 4.5);
+}
+function entregarEncargo(r, id) {
+  const res = encargos.entregar(); if (!res) return;
+  motor?.avisar('entrega', { pago: res.pago });
+  r.decir(sinRepetir('gracias', ['¡Gracias, rider!', '¡Por fin!', 'Justo lo que necesitaba.', '¿Y la propina? …Era broma.']), { dur: 3 });
+  ui.cartela(`+${res.pago} monchis`, 3);
+  J.charla = true;
+  const haciaEl = r.grupo.position.clone().sub(xr.cabeza).setY(0).normalize();
+  const c = xr.cabeza.clone().addScaledVector(haciaEl, 0.45); c.y = xr.cabeza.y - 0.34;
+  ui.tarjetasEn([`Otro encargo (racha ×${res.racha + 1})`, 'Basta por hoy'], c, haciaEl.clone().negate(), t => {
+    J.charla = false; ui.quitarTarjetas();
+    if (t.startsWith('Otro')) empezarEncargo(res.racha); else tarjetasSala();
+  });
+  setTimeout(() => { if (J.charla) { J.charla = false; ui.quitarTarjetas(); tarjetasSala(); } }, 10000);
+}
+const esperar = (cond, ms = 8000) => new Promise(ok => { const t0 = performance.now(); const f = () => (cond() || performance.now() - t0 > ms) ? ok() : setTimeout(f, 100); f(); });
+// nativo: se juega ya (en el bar o en casa); el resto, en la máquina del bar (de día, la máquina viene a ti)
+async function jugarDesdeSala(clave) {
+  const nativo = NATIVOS[clave];
+  if (!nativo && J.mundo === 'humo') {
+    recreativa.pedir(clave); portales.guia(['dentro']);
+    ui.cartela('A la máquina del bar: sigue el hilo de humo. Tu partida sale la primera ★', 4);
+    tarjetasSala(); return;
+  }
+  salirSala(false);
+  await esperar(() => !B.ocupado && J.fase !== 'barrio');
+  if (nativo) jugarMinijuego(nativo); else jugarRecreativa(clave);
 }
 function salirSala(aMaqueta) {
   if (B.ocupado) return; B.ocupado = true;
@@ -853,7 +981,7 @@ function salirSala(aMaqueta) {
   humo.llenar(xr.cabeza.clone(), () => {
     if (B.sala) escena.remove(B.sala.grupo);
     for (const r of B.gente) escena.remove(r.grupo);
-    B.sala = null; B.salaId = null; B.gente = []; portales.quitar();
+    B.sala = null; B.salaId = null; B.gente = []; portales.quitar(); encargos.quitarTablon(); quitarCosasSala();
     restaurarMundo();
     if (aMaqueta) ponerMaqueta(); else cerrarBarrio(true);
     B.ocupado = false;
@@ -891,7 +1019,7 @@ function cruzar(dest) {
   entrarSala(dest);
 }
 function pasoPuertas(dt, ms) {
-  if (!portales.lista.length || B.ocupado || J.transicion || J.calada || J.enManos || J.vuela || J.menu || escenasH?.ocupada) return;
+  if (!portales.lista.length || J.charla || B.ocupado || J.transicion || J.calada || J.enManos || J.vuela || J.menu || escenasH?.ocupada) return;
   const enSala = J.fase === 'barrio' && B.sala;
   const enUnake = J.mundo === 'humo' && !J.minijuego && ['fumar', 'liar', 'encender'].includes(J.fase);
   if (!enSala && !enUnake) return;
@@ -902,6 +1030,8 @@ function pasoPuertas(dt, ms) {
 }
 function cerrarBarrio(yaRestaurado = false) {
   if (B.sala) { escena.remove(B.sala.grupo); for (const r of B.gente) escena.remove(r.grupo); B.sala = null; B.salaId = null; B.gente = []; }
+  quitarCosasSala(); encargos.quitarTablon();
+  if (portales.metas?.includes('dentro')) portales.guia(null); // ya estás en el bar
   if (J.mundo === 'humo') montarPuertasUnake(); else portales.quitar();
   if (!yaRestaurado) restaurarMundo();
   if (B.maqueta) B.maqueta.grupo.visible = false;
@@ -977,10 +1107,13 @@ function director(dt) {
   agarre.actualizar(dt, ms); fisica.actualizar(dt); golpesAColegas(); pasoBolas(dt);
   recreativa?.actualizar(dt, ms);
   xr.pausarMovimiento?.(!!recreativa?.enUso);
-  if (!recreativa?.enUso) pasoPuertas(dt, ms);
+  if (!recreativa?.enUso) { pasoPuertas(dt, ms); pasoGente(dt, ms); }
+  pasoEncargos(dt, ms);
+  // tienda y hucha: solo cuando su montar() (asíncrono) ha terminado
+  if (J.fase === 'barrio' && !J.charla) { if (B.tienda?.lista) B.tienda.actualizar(dt, ms); if (B.hucha?.lista) B.hucha.actualizar(dt, ms); }
   if (J.fase === 'barrio') { if (B.maqueta?.grupo.visible) B.maqueta.actualizar(dt, ms, cab); for (const r of B.gente) r.actualizar(dt, cab); }
   if (J.minijuego) { try { J.minijuego.inst.actualizar(dt); } catch (e) { if (!J._errMj) { J._errMj = true; console.error('[minijuego]', e); } } }
-  else if (!escenasH?.ocupada && (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender')) mirarMenu();
+  if (!escenasH?.ocupada && !J.charla && (J.fase === 'fumar' || J.fase === 'liar' || J.fase === 'encender' || (J.fase === 'barrio' && B.sala && !B.ocupado))) mirarMenu();
   if (motor && J.fase !== 'portada' && J.fase !== 'prueba') {
     motor.paso(dt, { colocon: J.colocon });
     escenasH.actualizar(dt, ms);

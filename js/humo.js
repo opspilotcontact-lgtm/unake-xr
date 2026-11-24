@@ -91,6 +91,9 @@ export class Humo {
   // la cortinilla: la habitación se llena de humo alrededor de la cabeza; a mitad (cubierto) se llama a alCubrir
   // y luego el humo sube y se va. Unos 2,6 s en total, sin quitarte el mando.
   llenar(cabeza, alCubrir) {
+    // si había otra cortinilla sin abrir, se suelta ya (si no, sus bocanadas de vida 99 se quedaban tapándote)
+    const vieja = this.cortinilla;
+    if (vieja && !vieja.soltado) for (const b of vieja.bs) b.vida = b.edad + 0.3;
     const bs = [];
     for (let i = 0; i < 70; i++) {
       const dir = new THREE.Vector3().randomDirection(); dir.y = dir.y * 0.6;
